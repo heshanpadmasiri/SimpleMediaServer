@@ -170,6 +170,9 @@ func main() {
 	}
 	r := gin.Default()
 	r.LoadHTMLGlob("templates/*")
+	r.GET("/", func(c *gin.Context) {
+		returnDirectoryPage(c, &dir, "")
+	})
 	r.GET("/files/*path", func(c *gin.Context) {
 		path := c.Param("path")
 		directory := getDirectoryByPath(&dir, path)
@@ -179,13 +182,7 @@ func main() {
 			})
 			return
 		}
-		Directories := childDirectoryData(directory, path)
-		Files := fileData(directory, path)
-		c.HTML(http.StatusOK, "directoryData.tmpl", gin.H{
-			"name":        directory.name,
-			"Directories": Directories,
-			"Files":       Files,
-		})
+		returnDirectoryPage(c, directory, path)
 	})
 	r.GET("/img/:id", func(c *gin.Context) {
 		idStr := c.Param("id")
@@ -208,7 +205,6 @@ func main() {
 			})
 			return
 		}
-		files := fileData(directory, path)
 		id, err := strconv.Atoi(idStr)
 		if err != nil {
 			c.HTML(http.StatusNotFound, "invalidFile.tmpl", gin.H{
@@ -217,15 +213,18 @@ func main() {
 			return
 		}
 		names := ""
-		prev := prevUrl(directory.files, id, path)
-		next := nextUrl(directory.files, id, path)
+		index := index(directory.files, id)
+		files :=fileData(directory, path)
+		others := getFilesInRange(files, index)
+		prev := prevUrl(directory.files, index, path)
+		next := nextUrl(directory.files, index, path)
 		resourceUrl := fileResourceUrlById(id)
 		c.HTML(http.StatusOK, "slide.tmpl", gin.H{
 			"Name":        names,
 			"ResourceUrl": resourceUrl,
 			"PrevUrl":     prev,
 			"NextUrl":     next,
-			"Others":      files,
+			"Others":      others,
 		})
 	})
 
@@ -233,31 +232,69 @@ func main() {
 	r.Run()
 }
 
-func nextUrl(files []File, id int, path string) string {
-	for i, file := range files {
-		if file.id == id {
-			if i+1 < len(files) {
-				return slideUrl(path, files[i+1])
-			} else {
-				log.Println(files[0])
-				return slideUrl(path, files[0])
-			}
-		}
+func getFilesInRange(files []FileData, index int) []FileData {
+	numFiles := len(files)
+	if numFiles <= 11 {
+		return files
 	}
-	return ""
+
+	// Calculate the range of files to include
+	start := index - 5
+	end := index + 5
+
+	// Handle wraparound if necessary
+	if start < 0 {
+		start += numFiles
+	}
+	if end >= numFiles {
+		end -= numFiles
+	}
+
+	// Create a new slice with the files in the range
+	var result []FileData
+	if start <= end {
+		result = files[start : end+1]
+	} else {
+		result = append(files[start:], files[:end+1]...)
+	}
+
+	return result
 }
 
-func prevUrl(files []File, id int, path string) string {
+func index(files []File, id int) int {
 	for i, file := range files {
 		if file.id == id {
-			if i-1 >= 0 {
-				return slideUrl(path, files[i-1])
-			} else {
-				return slideUrl(path, files[len(files)-1])
-			}
+			return i
 		}
 	}
-	return ""
+	return -1
+}
+
+func nextUrl(files []File, i int, path string) string {
+	if i+1 < len(files) {
+		return slideUrl(path, files[i+1])
+	} else {
+		log.Println(files[0])
+		return slideUrl(path, files[0])
+	}
+}
+
+func prevUrl(files []File, i int, path string) string {
+	if i-1 >= 0 {
+		return slideUrl(path, files[i-1])
+	} else {
+		return slideUrl(path, files[len(files)-1])
+	}
+}
+
+func returnDirectoryPage(c *gin.Context, directory *Directory, path string) {
+	Directories := childDirectoryData(directory, path)
+	files := fileData(directory, path)[:10]
+	c.HTML(http.StatusOK, "directoryData.tmpl", gin.H{
+		"name":        directory.name,
+		"Directories": Directories,
+		"Files":       files,
+	})
 }
 
 func returnImageById(cx *Context, c *gin.Context, id int) {
