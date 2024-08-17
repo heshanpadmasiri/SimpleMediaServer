@@ -6,12 +6,18 @@
     <title>{{.name}}</title>
 </head>
 <body>
-    <img src="{{.ResourceUrl}}" alt="{{.Name}}">
-    <h2>Others</h2>
-    <ul>
+    <div style="display: flex; justify-content: center;">
+        <div>
+            <a href="{{.PrevUrl}}">Previous</a>
+            <a href="{{.NextUrl}}">Next</a>
+        <div>
+        <a href="{{.NextUrl}}"><img src="{{.ResourceUrl}}" alt="{{.Name}}"></a>
+    </div>
+
+    <div class="image-grid">
         {{range .Others}}
-            <li><a href="{{.Url}}"><img src="{{.ResourceUrl}}" alt="{{.Name}}"></a></li>
+            <a href="{{.Url}}"><img src="{{.ResourceUrl}}" alt="{{.Name}}"></a>
         {{end}}
-    </ul>
+    </div>
 </body>
 </html>

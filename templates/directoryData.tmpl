@@ -14,10 +14,10 @@
         {{end}}
     </ul>
     <h2>Files</h2>
-    <ul>
+    <div class="image-grid">
         {{range .Files}}
-            <li><a href="{{.Url}}"><img src="{{.ResourceUrl}}" alt="{{.Name}}"></a></li>
+            <a href="{{.Url}}"><img src="{{.ResourceUrl}}" alt="{{.Name}}"></a>
         {{end}}
-    </ul>
+    </div>
 </body>
 </html>

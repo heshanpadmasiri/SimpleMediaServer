@@ -215,16 +215,46 @@ func main() {
 			return
 		}
 		names := ""
+		prev := prevUrl(dir.files, id)
+		next := nextUrl(dir.files, id)
 		resourceUrl := fileResourceUrlById(id)
 		c.HTML(http.StatusOK, "slide.tmpl", gin.H{
 			"Name":        names,
 			"ResourceUrl": resourceUrl,
+			"PrevUrl":     prev,
+			"NextUrl":     next,
 			"Others":      files,
 		})
 	})
 
 	fmt.Println(dir)
 	r.Run()
+}
+
+func nextUrl(files []File, id int) string {
+	for i, file := range files {
+		if file.id == id {
+			if i+1 < len(files) {
+				return fileResourceUrl(files[i+1])
+			} else {
+				return fileResourceUrl(files[0])
+			}
+		}
+	}
+	return ""
+}
+
+func prevUrl(files []File, id int) string {
+	for i, file := range files {
+		if file.id == id {
+			if i-1 >= 0 {
+				return fileResourceUrl(files[i-1])
+			} else {
+				return fileResourceUrl(files[len(files)-1])
+			}
+		}
+	}
+	return ""
 }
 
 func returnImageById(cx *Context, c *gin.Context, id int) {
