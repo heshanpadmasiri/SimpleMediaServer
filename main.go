@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -119,11 +118,8 @@ type FileData struct {
 }
 
 func directoryUrl(path, name string) string {
-	return directoryUrlInner("/files/", path, name)
-}
-
-func directoryUrlInner(prefix, path, name string) string {
 	basePath := strings.Trim(path, "/")
+	prefix := "/files/"
 	if basePath == "" {
 		return prefix + name
 	}
@@ -138,8 +134,14 @@ func childDirectoryData(directory *Directory, path string) []DirectoryData {
 	return data
 }
 
-func fileUrl(path string, directory *Directory, file File) string {
-	return directoryUrlInner("/slides/", path, directory.name) + "/" + strconv.Itoa(file.id)
+func fileUrl(path string, file File) string {
+	prefix := "/slides/"
+	basePath := strings.Trim(path, "/")
+	id := strconv.Itoa(file.id)
+	if basePath == "" {
+		return prefix + id
+	}
+	return prefix + id + "/" + basePath
 }
 
 func fileResourceUrl(file File) string {
@@ -153,7 +155,7 @@ func fileResourceUrlById(id int) string {
 func fileData(directory *Directory, path string) []FileData {
 	data := make([]FileData, 0)
 	for _, file := range directory.files {
-		data = append(data, FileData{Name: file.name, Url: fileUrl(path, directory, file), ResourceUrl: fileResourceUrl(file)})
+		data = append(data, FileData{Name: file.name, Url: fileUrl(path, file), ResourceUrl: fileResourceUrl(file)})
 	}
 	return data
 }
@@ -168,9 +170,7 @@ func main() {
 	r.LoadHTMLGlob("templates/*")
 	r.GET("/files/*path", func(c *gin.Context) {
 		path := c.Param("path")
-		log.Println(path)
 		directory := getDirectoryByPath(&dir, path)
-		log.Println(directory)
 		if directory == nil {
 			c.HTML(http.StatusNotFound, "invalidPath.tmpl", gin.H{
 				"path": path,
@@ -195,6 +195,32 @@ func main() {
 			return
 		}
 		returnImageById(&cx, c, id)
+	})
+	r.GET("/slides/:id/*path", func(c *gin.Context) {
+		path := c.Param("path")
+		idStr := c.Param("id")
+		directory := getDirectoryByPath(&dir, path)
+		if directory == nil {
+			c.HTML(http.StatusNotFound, "invalidPath.tmpl", gin.H{
+				"path": path,
+			})
+			return
+		}
+		files := fileData(directory, path)
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			c.HTML(http.StatusNotFound, "invalidFile.tmpl", gin.H{
+				"reason": err,
+			})
+			return
+		}
+		names := ""
+		resourceUrl := fileResourceUrlById(id)
+		c.HTML(http.StatusOK, "slide.tmpl", gin.H{
+			"Name":        names,
+			"ResourceUrl": resourceUrl,
+			"Others":      files,
+		})
 	})
 
 	fmt.Println(dir)
