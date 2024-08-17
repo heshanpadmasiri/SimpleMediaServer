@@ -2,8 +2,11 @@ package main
 
 import (
 	"fmt"
+	"log"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -101,6 +104,38 @@ func addDirRootToContext(cx *Context, path string) (Directory, error) {
 	return Directory{childDirectory: childDirectory, files: files, name: name}, nil
 }
 
+type FileData struct {
+	Name string
+	Url string
+}
+
+func direcotryUrl(path, name string) string {
+	basePath := strings.Trim(path, "/")
+	if basePath == "" {
+		return "/files/" + name
+	}
+	return "/files/" + basePath + "/" + name
+}
+func childDirectoryData(directory *Directory, path string) []FileData {
+	data := make([]FileData, 0)
+	for _, dir := range directory.childDirectory {
+		data = append(data, FileData{Name: dir.name, Url: direcotryUrl(path, dir.name)})
+	}
+	return data
+}
+
+func fileUrl(directory *Directory, file File) string {
+	return "/img/" + directory.name + "/" + strconv.Itoa(file.id)
+}
+
+func fileData(directory *Directory) []FileData {
+	data := make([]FileData, 0)
+	for _, file := range directory.files {
+		data = append(data, FileData{Name: file.name, Url: fileUrl(directory, file)})
+	}
+	return data
+}
+
 func main() {
 	cx := Context{paths: make([]string, 0)}
 	dir, err := addDirRootToContext(&cx, "./testData")
@@ -108,20 +143,26 @@ func main() {
 		panic(err)
 	}
 	r := gin.Default()
-	r.GET("/ping/*path", func(c *gin.Context) {
+	r.LoadHTMLGlob("templates/*")
+	r.GET("/files/*path", func(c *gin.Context) {
 		path := c.Param("path")
+		log.Println(path)
 		directory := getDirectoryByPath(&dir, path)
+		log.Println(directory)
 		if directory == nil {
-			c.JSON(404, gin.H{
-				"message": "Not found",
+			c.HTML(http.StatusNotFound, "invalidPath.tmpl", gin.H{
+				"path": path,
 			})
 			return
 		}
-		c.JSON(200, gin.H{
-			"message": "pong",
-			"path":    path,
+		Directories := childDirectoryData(directory, path)
+		Files := fileData(directory)
+		c.HTML(http.StatusOK, "directoryData.tmpl", gin.H{
 			"name": directory.name,
+			"Directories": Directories,
+			"Files": Files,
 		})
+		return
 	})
 
 	fmt.Println(dir)
