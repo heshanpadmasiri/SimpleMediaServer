@@ -107,34 +107,53 @@ func addDirRootToContext(cx *Context, path string) (Directory, error) {
 	return Directory{childDirectory: childDirectory, files: files, name: name}, nil
 }
 
-type FileData struct {
+type DirectoryData struct {
 	Name string
-	Url string
+	Url  string
 }
 
-func direcotryUrl(path, name string) string {
+type FileData struct {
+	Name        string
+	Url         string
+	ResourceUrl string
+}
+
+func directoryUrl(path, name string) string {
+	return directoryUrlInner("/files/", path, name)
+}
+
+func directoryUrlInner(prefix, path, name string) string {
 	basePath := strings.Trim(path, "/")
 	if basePath == "" {
-		return "/files/" + name
+		return prefix + name
 	}
-	return "/files/" + basePath + "/" + name
+	return prefix + basePath + "/" + name
 }
-func childDirectoryData(directory *Directory, path string) []FileData {
-	data := make([]FileData, 0)
+
+func childDirectoryData(directory *Directory, path string) []DirectoryData {
+	data := make([]DirectoryData, 0)
 	for _, dir := range directory.childDirectory {
-		data = append(data, FileData{Name: dir.name, Url: direcotryUrl(path, dir.name)})
+		data = append(data, DirectoryData{Name: dir.name, Url: directoryUrl(path, dir.name)})
 	}
 	return data
 }
 
-func fileUrl(directory *Directory, file File) string {
-	return "/img/" + directory.name + "/" + strconv.Itoa(file.id)
+func fileUrl(path string, directory *Directory, file File) string {
+	return directoryUrlInner("/slides/", path, directory.name) + "/" + strconv.Itoa(file.id)
 }
 
-func fileData(directory *Directory) []FileData {
+func fileResourceUrl(file File) string {
+	return fileResourceUrlById(file.id)
+}
+
+func fileResourceUrlById(id int) string {
+	return "/img/" + strconv.Itoa(id)
+}
+
+func fileData(directory *Directory, path string) []FileData {
 	data := make([]FileData, 0)
 	for _, file := range directory.files {
-		data = append(data, FileData{Name: file.name, Url: fileUrl(directory, file)})
+		data = append(data, FileData{Name: file.name, Url: fileUrl(path, directory, file), ResourceUrl: fileResourceUrl(file)})
 	}
 	return data
 }
@@ -159,14 +178,14 @@ func main() {
 			return
 		}
 		Directories := childDirectoryData(directory, path)
-		Files := fileData(directory)
+		Files := fileData(directory, path)
 		c.HTML(http.StatusOK, "directoryData.tmpl", gin.H{
-			"name": directory.name,
+			"name":        directory.name,
 			"Directories": Directories,
-			"Files": Files,
+			"Files":       Files,
 		})
 	})
-	r.GET("/img/:directory/:id", func(c *gin.Context) {
+	r.GET("/img/:id", func(c *gin.Context) {
 		idStr := c.Param("id")
 		id, err := strconv.Atoi(idStr)
 		if err != nil {
@@ -175,45 +194,49 @@ func main() {
 			})
 			return
 		}
-		path, err := getPath(&cx, id)
-		if err != nil {
-			c.HTML(http.StatusNotFound, "invalidFile.tmpl", gin.H{
-				"reason": err,
-			})
-			return
-		}
-		file, err := os.Open(path)
-		if err != nil {
-			c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
-				"reason": err,
-			})
-			return
-		}
-		defer file.Close()
-
-		fileInfo, err := file.Stat()
-		if err != nil {
-			c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
-				"reason": err,
-			})
-			return
-		}
-
-		fileSize := fileInfo.Size()
-		buffer := make([]byte, fileSize)
-
-		_, err = file.Read(buffer)
-		if err != nil {
-			c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
-				"reason": err,
-			})
-			return
-		}
-
-		contentType := http.DetectContentType(buffer)
-		c.Data(http.StatusOK, contentType, buffer)
+		returnImageById(&cx, c, id)
 	})
 
 	fmt.Println(dir)
 	r.Run()
+}
+
+func returnImageById(cx *Context, c *gin.Context, id int) {
+	path, err := getPath(cx, id)
+	if err != nil {
+		c.HTML(http.StatusNotFound, "invalidFile.tmpl", gin.H{
+			"reason": err,
+		})
+		return
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
+			"reason": err,
+		})
+		return
+	}
+	defer file.Close()
+
+	fileInfo, err := file.Stat()
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
+			"reason": err,
+		})
+		return
+	}
+
+	fileSize := fileInfo.Size()
+	buffer := make([]byte, fileSize)
+
+	_, err = file.Read(buffer)
+	if err != nil {
+		c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
+			"reason": err,
+		})
+		return
+	}
+
+	contentType := http.DetectContentType(buffer)
+	c.Data(http.StatusOK, contentType, buffer)
 }

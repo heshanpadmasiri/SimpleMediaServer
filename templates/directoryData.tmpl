@@ -16,7 +16,7 @@
     <h2>Files</h2>
     <ul>
         {{range .Files}}
-            <li><a href="{{.Url}}">{{.Name}}</a></li>
+            <li><a href="{{.Url}}"><img src="{{.ResourceUrl}}" alt="{{.Name}}"></a></li>
         {{end}}
     </ul>
 </body>
