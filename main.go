@@ -162,7 +162,8 @@ func fileData(directory *Directory, path string) []FileData {
 
 func main() {
 	cx := Context{paths: make([]string, 0)}
-	dir, err := addDirRootToContext(&cx, "./testData")
+	dataPath := os.Args[1]
+	dir, err := addDirRootToContext(&cx, dataPath)
 	if err != nil {
 		panic(err)
 	}
