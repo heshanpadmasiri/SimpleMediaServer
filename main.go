@@ -28,8 +28,11 @@ type Context struct {
 }
 
 // Make this a method of Context
-func getPath(cx *Context, file *File) string {
-	return cx.paths[file.id]
+func getPath(cx *Context, id int) (string, error) {
+	if id < 0 || id >= len(cx.paths) {
+		return "", fmt.Errorf("invalid id %d", id)
+	}
+	return cx.paths[id], nil
 }
 
 func splitPath(path string) (string, string) {
@@ -162,7 +165,53 @@ func main() {
 			"Directories": Directories,
 			"Files": Files,
 		})
-		return
+	})
+	r.GET("/img/:directory/:id", func(c *gin.Context) {
+		idStr := c.Param("id")
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			c.HTML(http.StatusNotFound, "invalidFile.tmpl", gin.H{
+				"reason": err,
+			})
+			return
+		}
+		path, err := getPath(&cx, id)
+		if err != nil {
+			c.HTML(http.StatusNotFound, "invalidFile.tmpl", gin.H{
+				"reason": err,
+			})
+			return
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
+				"reason": err,
+			})
+			return
+		}
+		defer file.Close()
+
+		fileInfo, err := file.Stat()
+		if err != nil {
+			c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
+				"reason": err,
+			})
+			return
+		}
+
+		fileSize := fileInfo.Size()
+		buffer := make([]byte, fileSize)
+
+		_, err = file.Read(buffer)
+		if err != nil {
+			c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
+				"reason": err,
+			})
+			return
+		}
+
+		contentType := http.DetectContentType(buffer)
+		c.Data(http.StatusOK, contentType, buffer)
 	})
 
 	fmt.Println(dir)
