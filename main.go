@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -134,7 +135,7 @@ func childDirectoryData(directory *Directory, path string) []DirectoryData {
 	return data
 }
 
-func fileUrl(path string, file File) string {
+func slideUrl(path string, file File) string {
 	prefix := "/slides/"
 	basePath := strings.Trim(path, "/")
 	id := strconv.Itoa(file.id)
@@ -155,7 +156,7 @@ func fileResourceUrlById(id int) string {
 func fileData(directory *Directory, path string) []FileData {
 	data := make([]FileData, 0)
 	for _, file := range directory.files {
-		data = append(data, FileData{Name: file.name, Url: fileUrl(path, file), ResourceUrl: fileResourceUrl(file)})
+		data = append(data, FileData{Name: file.name, Url: slideUrl(path, file), ResourceUrl: fileResourceUrl(file)})
 	}
 	return data
 }
@@ -216,8 +217,8 @@ func main() {
 			return
 		}
 		names := ""
-		prev := prevUrl(dir.files, id)
-		next := nextUrl(dir.files, id)
+		prev := prevUrl(directory.files, id, path)
+		next := nextUrl(directory.files, id, path)
 		resourceUrl := fileResourceUrlById(id)
 		c.HTML(http.StatusOK, "slide.tmpl", gin.H{
 			"Name":        names,
@@ -232,26 +233,27 @@ func main() {
 	r.Run()
 }
 
-func nextUrl(files []File, id int) string {
+func nextUrl(files []File, id int, path string) string {
 	for i, file := range files {
 		if file.id == id {
 			if i+1 < len(files) {
-				return fileResourceUrl(files[i+1])
+				return slideUrl(path, files[i+1])
 			} else {
-				return fileResourceUrl(files[0])
+				log.Println(files[0])
+				return slideUrl(path, files[0])
 			}
 		}
 	}
 	return ""
 }
 
-func prevUrl(files []File, id int) string {
+func prevUrl(files []File, id int, path string) string {
 	for i, file := range files {
 		if file.id == id {
 			if i-1 >= 0 {
-				return fileResourceUrl(files[i-1])
+				return slideUrl(path, files[i-1])
 			} else {
-				return fileResourceUrl(files[len(files)-1])
+				return slideUrl(path, files[len(files)-1])
 			}
 		}
 	}
