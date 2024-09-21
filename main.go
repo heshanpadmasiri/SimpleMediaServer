@@ -51,19 +51,15 @@ func (cx *Context) getPath(id int) (string, error) {
 }
 
 func (cx *Context) getVideoThumbnailPathFor(id int) (string, error) {
-	fmt.Printf("Getting thumbnail for video %d\n", id)
 	cx.mu.Lock()
-	fmt.Printf("locked for %d\n", id)
 	defer cx.mu.Unlock()
 	if !cx.fileCacheReady {
-		fmt.Printf("initializing cache for %d\n", id)
 		err := cx.initFileCache()
 		if err != nil {
 			return "", err
 		}
 	}
 	if path, ok := cx.thumbnailPaths[id]; ok {
-		fmt.Printf("thumbnail already generated for %d\n", id)
 		return path, nil
 	}
 	return cx.generateThumbnailForVideo(id)
@@ -83,6 +79,8 @@ func (cx *Context) generateThumbnailForVideo(id int) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// TODO: allow for concurrent generation of thumbnails
+	// -- Currently we can't do this becuase we have a lock at the begining of image generation
 	path, err := cx.generateThumbnailForVideoInner(videoPath)
 	if err != nil {
 		cx.thumbnailPaths[id] = "/cache/error.jpg"
@@ -280,13 +278,36 @@ func imageResourceUrlById(id int) string {
 	return "/img/" + strconv.Itoa(id)
 }
 
-func fileData(cx *Context, directory *Directory, path string) []FileData {
+func getFilesInRange(cx *Context, directory *Directory, path string, index int) []FileData {
+	files := directory.files
+	if len(files) <= 11 {
+		return getFilesInRangeInner(cx, path, files)
+	}
+	start, end := getIndexRange(index)
+	return getFilesInRangeInner(cx, path, files[start:end])
+}
+
+func getFilesInRangeInner(cx *Context, path string, files []File) []FileData {
+	data := make([]FileData, 0)
+	for _, file := range files {
+		if file.kind == Other {
+			continue
+		}
+		data = append(data, FileData{Name: file.name, Url: slideUrl(path, file), ResourceUrl: fileResourceUrl(file), ThumnailUrl: fileThumbnailUrl(cx, file)})
+	}
+	return data
+}
+
+func fileDataInner(cx *Context, directory *Directory, path string, limit int) []FileData {
 	data := make([]FileData, 0)
 	for _, file := range directory.files {
 		if file.kind == Other {
 			continue
 		}
 		data = append(data, FileData{Name: file.name, Url: slideUrl(path, file), ResourceUrl: fileResourceUrl(file), ThumnailUrl: fileThumbnailUrl(cx, file)})
+		if len(data) == limit {
+			break
+		}
 	}
 	return data
 }
@@ -361,8 +382,7 @@ func main() {
 		names := ""
 		index := index(directory.files, id)
 		isVideo := directory.files[index].kind == Video
-		files := fileData(&cx, directory, path)
-		others := getFilesInRange(files, index)
+		others := getFilesInRange(&cx, directory, path, index)
 		prev := prevUrl(directory.files, index, path)
 		next := nextUrl(directory.files, index, path)
 		resourceUrl := imageResourceUrlById(id)
@@ -380,33 +400,13 @@ func main() {
 	r.Run()
 }
 
-func getFilesInRange(files []FileData, index int) []FileData {
-	numFiles := len(files)
-	if numFiles <= 11 {
-		return files
-	}
-
-	// Calculate the range of files to include
+func getIndexRange(index int) (int, int) {
 	start := index - 5
-	end := index + 5
-
-	// Handle wraparound if necessary
 	if start < 0 {
-		start += numFiles
+		start = 0
 	}
-	if end >= numFiles {
-		end -= numFiles
-	}
-
-	// Create a new slice with the files in the range
-	var result []FileData
-	if start <= end {
-		result = files[start : end+1]
-	} else {
-		result = append(files[start:], files[:end+1]...)
-	}
-
-	return result
+	end := start + 10
+	return start, end
 }
 
 func index(files []File, id int) int {
@@ -437,10 +437,7 @@ func prevUrl(files []File, i int, path string) string {
 
 func returnDirectoryPage(c *gin.Context, cx *Context, directory *Directory, path string) {
 	Directories := childDirectoryData(directory, path)
-	files := fileData(cx, directory, path)
-	if len(files) > 10 {
-		files = files[:10]
-	}
+	files := fileDataInner(cx, directory, path, 10)
 	c.HTML(http.StatusOK, "directoryData.tmpl", gin.H{
 		"name":        directory.name,
 		"Directories": Directories,
