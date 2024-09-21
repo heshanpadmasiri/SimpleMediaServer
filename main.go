@@ -5,16 +5,27 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
+)
+
+type FileKind int
+
+const (
+	Image FileKind = iota
+	Video
+	Other
 )
 
 type File struct {
 	name string
 	id   int
+	kind FileKind
 }
 
 type Directory struct {
@@ -24,15 +35,89 @@ type Directory struct {
 }
 
 type Context struct {
-	paths []string
+	paths           []string
+	fileCacheReady  bool
+	mu              sync.Mutex
+	thumbnailPaths  map[int]string
+	nextThumbnailId int
 }
 
-// Make this a method of Context
-func getPath(cx *Context, id int) (string, error) {
+// given file index get the path from context
+func (cx *Context) getPath(id int) (string, error) {
 	if id < 0 || id >= len(cx.paths) {
 		return "", fmt.Errorf("invalid id %d", id)
 	}
 	return cx.paths[id], nil
+}
+
+func (cx *Context) getVideoThumbnailPathFor(id int) (string, error) {
+	cx.mu.Lock()
+	defer cx.mu.Unlock()
+	if !cx.fileCacheReady {
+		err := cx.initFileCache()
+		if err != nil {
+			return "", err
+		}
+	}
+	if path, ok := cx.thumbnailPaths[id]; ok {
+		return path, nil
+	}
+	return cx.generateThumbnailForVideo(id)
+}
+
+func (cx *Context) getNextThumbnailPath() string {
+	cx.nextThumbnailId++
+	return fmt.Sprintf("/cache/thumbnail%d.jpg", cx.nextThumbnailId)
+}
+
+func (cx *Context) cleanCache() {
+	exec.Command("rm", "-rf", "./cache").Output()
+}
+
+func (cx *Context) generateThumbnailForVideo(id int) (string, error) {
+	videoPath, err := cx.getPath(id)
+	if err != nil {
+		return "", err
+	}
+	// TODO: allow for concurrent generation of thumbnails
+	// -- Currently we can't do this becuase we have a lock at the begining of image generation
+	path, err := cx.generateThumbnailForVideoInner(videoPath)
+	if err != nil {
+		cx.thumbnailPaths[id] = "/cache/error.jpg"
+	} else {
+		cx.thumbnailPaths[id] = path
+	}
+	return path, err
+}
+
+func (cx *Context) generateThumbnailForVideoInner(videoPath string) (string, error) {
+	// generate a thumbnail for the video
+	thumbnailPath := cx.getNextThumbnailPath()
+	cmd := exec.Command("ffmpeg", "-i", videoPath, "-ss", "00:00:01.000", "-vframes", "1", thumbnailPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		fmt.Println("Error executing ffmpeg:", err)
+		fmt.Println("ffmpeg output:", string(output))
+		return "", err
+	}
+	return thumbnailPath, nil
+}
+
+func (cx *Context) initFileCache() error {
+	// check if a directory called "cache" exists in the current directory, if so delete it
+	// create a new directory called "cache"
+	_, err := os.Stat("cache")
+	if os.IsNotExist(err) {
+		err := os.Mkdir("cache", 0755)
+		if err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+	cx.thumbnailPaths = make(map[int]string)
+	cx.fileCacheReady = true
+	return nil
 }
 
 func splitPath(path string) (string, string) {
@@ -65,7 +150,19 @@ func addFileToContext(cx *Context, path string) (File, error) {
 	}
 
 	name := fileInfo.Name()
-	return File{name: name, id: len(cx.paths) - 1}, nil
+	return File{name: name, id: len(cx.paths) - 1, kind: fileKind(path)}, nil
+}
+
+func fileKind(path string) FileKind {
+	ext := filepath.Ext(path)
+	switch ext {
+	case ".jpg", ".jpeg", ".png", ".gif":
+		return Image
+	case ".mp4", ".webm":
+		return Video
+	default:
+		return Other
+	}
 }
 
 func filteredFile(path string) bool {
@@ -116,6 +213,8 @@ type FileData struct {
 	Name        string
 	Url         string
 	ResourceUrl string
+	ThumnailUrl string
+	IsVideo     bool
 }
 
 func directoryUrl(path, name string) string {
@@ -146,23 +245,76 @@ func slideUrl(path string, file File) string {
 }
 
 func fileResourceUrl(file File) string {
-	return fileResourceUrlById(file.id)
+	switch file.kind {
+	case Video:
+		return videoResourceUrlById(file.id)
+	case Image:
+		return imageResourceUrlById(file.id)
+	default:
+		panic("unimplemented")
+	}
 }
 
-func fileResourceUrlById(id int) string {
+func fileThumbnailUrl(cx *Context, file File) string {
+	switch file.kind {
+	case Video:
+		path, error := cx.getVideoThumbnailPathFor(file.id)
+		if error != nil {
+			return ""
+		}
+		return path
+	case Image:
+		return imageResourceUrlById(file.id)
+	default:
+		panic("unimplemented")
+	}
+}
+
+func videoResourceUrlById(id int) string {
+	return "/video/" + strconv.Itoa(id)
+}
+
+func imageResourceUrlById(id int) string {
 	return "/img/" + strconv.Itoa(id)
 }
 
-func fileData(directory *Directory, path string) []FileData {
+func getFilesInRange(cx *Context, directory *Directory, path string, index int) []FileData {
+	files := directory.files
+	if len(files) <= 11 {
+		return getFilesInRangeInner(cx, path, files)
+	}
+	start, end := getIndexRange(index)
+	return getFilesInRangeInner(cx, path, files[start:end])
+}
+
+func getFilesInRangeInner(cx *Context, path string, files []File) []FileData {
+	data := make([]FileData, 0)
+	for _, file := range files {
+		if file.kind == Other {
+			continue
+		}
+		data = append(data, FileData{Name: file.name, Url: slideUrl(path, file), ResourceUrl: fileResourceUrl(file), ThumnailUrl: fileThumbnailUrl(cx, file)})
+	}
+	return data
+}
+
+func fileDataInner(cx *Context, directory *Directory, path string, limit int) []FileData {
 	data := make([]FileData, 0)
 	for _, file := range directory.files {
-		data = append(data, FileData{Name: file.name, Url: slideUrl(path, file), ResourceUrl: fileResourceUrl(file)})
+		if file.kind == Other {
+			continue
+		}
+		data = append(data, FileData{Name: file.name, Url: slideUrl(path, file), ResourceUrl: fileResourceUrl(file), ThumnailUrl: fileThumbnailUrl(cx, file)})
+		if len(data) == limit {
+			break
+		}
 	}
 	return data
 }
 
 func main() {
 	cx := Context{paths: make([]string, 0)}
+	cx.cleanCache()
 	dataPath := os.Args[1]
 	dir, err := addDirRootToContext(&cx, dataPath)
 	if err != nil {
@@ -170,6 +322,9 @@ func main() {
 	}
 	r := gin.Default()
 	r.LoadHTMLGlob("templates/*")
+	r.GET("/", func(c *gin.Context) {
+		returnDirectoryPage(c, &cx, &dir, "")
+	})
 	r.GET("/files/*path", func(c *gin.Context) {
 		path := c.Param("path")
 		directory := getDirectoryByPath(&dir, path)
@@ -179,14 +334,9 @@ func main() {
 			})
 			return
 		}
-		Directories := childDirectoryData(directory, path)
-		Files := fileData(directory, path)
-		c.HTML(http.StatusOK, "directoryData.tmpl", gin.H{
-			"name":        directory.name,
-			"Directories": Directories,
-			"Files":       Files,
-		})
+		returnDirectoryPage(c, &cx, directory, path)
 	})
+	// TODO: refactor image and vidoe handlers
 	r.GET("/img/:id", func(c *gin.Context) {
 		idStr := c.Param("id")
 		id, err := strconv.Atoi(idStr)
@@ -196,7 +346,21 @@ func main() {
 			})
 			return
 		}
-		returnImageById(&cx, c, id)
+		returnFileById(&cx, c, id)
+	})
+	r.GET("/cache/:name", func(c *gin.Context) {
+		returnFileByPath(c, fmt.Sprintf("cache/%s", c.Param("name")))
+	})
+	r.GET("/video/:id", func(c *gin.Context) {
+		idStr := c.Param("id")
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			c.HTML(http.StatusNotFound, "invalidFile.tmpl", gin.H{
+				"reason": err,
+			})
+			return
+		}
+		returnFileById(&cx, c, id)
 	})
 	r.GET("/slides/:id/*path", func(c *gin.Context) {
 		path := c.Param("path")
@@ -208,7 +372,6 @@ func main() {
 			})
 			return
 		}
-		files := fileData(directory, path)
 		id, err := strconv.Atoi(idStr)
 		if err != nil {
 			c.HTML(http.StatusNotFound, "invalidFile.tmpl", gin.H{
@@ -217,15 +380,19 @@ func main() {
 			return
 		}
 		names := ""
-		prev := prevUrl(directory.files, id, path)
-		next := nextUrl(directory.files, id, path)
-		resourceUrl := fileResourceUrlById(id)
+		index := index(directory.files, id)
+		isVideo := directory.files[index].kind == Video
+		others := getFilesInRange(&cx, directory, path, index)
+		prev := prevUrl(directory.files, index, path)
+		next := nextUrl(directory.files, index, path)
+		resourceUrl := imageResourceUrlById(id)
 		c.HTML(http.StatusOK, "slide.tmpl", gin.H{
 			"Name":        names,
+			"isVideo":     isVideo,
 			"ResourceUrl": resourceUrl,
 			"PrevUrl":     prev,
 			"NextUrl":     next,
-			"Others":      files,
+			"Others":      others,
 		})
 	})
 
@@ -233,41 +400,52 @@ func main() {
 	r.Run()
 }
 
-func nextUrl(files []File, id int, path string) string {
-	for i, file := range files {
-		if file.id == id {
-			if i+1 < len(files) {
-				return slideUrl(path, files[i+1])
-			} else {
-				log.Println(files[0])
-				return slideUrl(path, files[0])
-			}
-		}
+func getIndexRange(index int) (int, int) {
+	start := index - 5
+	if start < 0 {
+		start = 0
 	}
-	return ""
+	end := start + 10
+	return start, end
 }
 
-func prevUrl(files []File, id int, path string) string {
+func index(files []File, id int) int {
 	for i, file := range files {
 		if file.id == id {
-			if i-1 >= 0 {
-				return slideUrl(path, files[i-1])
-			} else {
-				return slideUrl(path, files[len(files)-1])
-			}
+			return i
 		}
 	}
-	return ""
+	return -1
 }
 
-func returnImageById(cx *Context, c *gin.Context, id int) {
-	path, err := getPath(cx, id)
-	if err != nil {
-		c.HTML(http.StatusNotFound, "invalidFile.tmpl", gin.H{
-			"reason": err,
-		})
-		return
+func nextUrl(files []File, i int, path string) string {
+	if i+1 < len(files) {
+		return slideUrl(path, files[i+1])
+	} else {
+		log.Println(files[0])
+		return slideUrl(path, files[0])
 	}
+}
+
+func prevUrl(files []File, i int, path string) string {
+	if i-1 >= 0 {
+		return slideUrl(path, files[i-1])
+	} else {
+		return slideUrl(path, files[len(files)-1])
+	}
+}
+
+func returnDirectoryPage(c *gin.Context, cx *Context, directory *Directory, path string) {
+	Directories := childDirectoryData(directory, path)
+	files := fileDataInner(cx, directory, path, 10)
+	c.HTML(http.StatusOK, "directoryData.tmpl", gin.H{
+		"name":        directory.name,
+		"Directories": Directories,
+		"Files":       files,
+	})
+}
+
+func returnFileByPath(c *gin.Context, path string) {
 	file, err := os.Open(path)
 	if err != nil {
 		c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
@@ -298,4 +476,15 @@ func returnImageById(cx *Context, c *gin.Context, id int) {
 
 	contentType := http.DetectContentType(buffer)
 	c.Data(http.StatusOK, contentType, buffer)
+}
+
+func returnFileById(cx *Context, c *gin.Context, id int) {
+	path, err := cx.getPath(id)
+	if err != nil {
+		c.HTML(http.StatusNotFound, "invalidFile.tmpl", gin.H{
+			"reason": err,
+		})
+		return
+	}
+	returnFileByPath(c, path)
 }

@@ -10,13 +10,22 @@
         <div>
             <a href="{{.PrevUrl}}">Previous</a>
             <a href="{{.NextUrl}}">Next</a>
-        <div>
-        <a href="{{.NextUrl}}"><img src="{{.ResourceUrl}}" alt="{{.Name}}"></a>
+        </div>
+            {{if .isVideo}}
+                <video controls style="max-width: 80%; max-height: 80%;">
+                    <source src="{{.ResourceUrl}}" type="video/mp4">
+                    Your browser does not support the video tag.
+                </video>
+            {{else}}
+                <a href="{{.NextUrl}}">
+                    <img src="{{.ResourceUrl}}" alt="{{.Name}}" style="max-width: 80%; max-height: 80%;">
+                </a>
+            {{end}}
     </div>
 
     <div class="image-grid">
         {{range .Others}}
-            <a href="{{.Url}}"><img src="{{.ResourceUrl}}" alt="{{.Name}}"></a>
+            <a href="{{.Url}}"><img style="max-width: 25%; height: auto;" src="{{.ThumnailUrl}}" alt="{{.Name}}"></a>
         {{end}}
     </div>
 </body>
