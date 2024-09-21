@@ -66,11 +66,7 @@ func (cx *Context) getVideoThumbnailPathFor(id int) (string, error) {
 		fmt.Printf("thumbnail already generated for %d\n", id)
 		return path, nil
 	}
-	videoPath, err := cx.getPath(id)
-	if err != nil {
-		return "", err
-	}
-	return cx.generateThumbnailForVideo(videoPath)
+	return cx.generateThumbnailForVideo(id)
 }
 
 func (cx *Context) getNextThumbnailPath() string {
@@ -82,7 +78,21 @@ func (cx *Context) cleanCache() {
 	exec.Command("rm", "-rf", "./cache").Output()
 }
 
-func (cx *Context) generateThumbnailForVideo(videoPath string) (string, error) {
+func (cx *Context) generateThumbnailForVideo(id int) (string, error) {
+	videoPath, err := cx.getPath(id)
+	if err != nil {
+		return "", err
+	}
+	path, err := cx.generateThumbnailForVideoInner(videoPath)
+	if err != nil {
+		cx.thumbnailPaths[id] = "/cache/error.jpg"
+	} else {
+		cx.thumbnailPaths[id] = path
+	}
+	return path, err
+}
+
+func (cx *Context) generateThumbnailForVideoInner(videoPath string) (string, error) {
 	// generate a thumbnail for the video
 	thumbnailPath := cx.getNextThumbnailPath()
 	cmd := exec.Command("ffmpeg", "-i", videoPath, "-ss", "00:00:01.000", "-vframes", "1", thumbnailPath)
