@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.name}}</title>
     <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
 </head>
 <body>
     
@@ -21,10 +22,10 @@
         {{end}}
     </div>
 
-    <div class="image-grid">
-        {{range .Others}}
-            <a href="{{.Url}}"><img style="max-width: 25%; height: auto;" src="{{.ThumnailUrl}}" alt="{{.Name}}"></a>
-        {{end}}
+    <div id="image-grid-container" 
+         hx-get="/image-grid/{{.DirectoryId}}" 
+         hx-trigger="load"
+         hx-target="#image-grid-container">
     </div>
 </body>
 </html>

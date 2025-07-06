@@ -29,6 +29,7 @@ type File struct {
 }
 
 type Directory struct {
+	id             int
 	name           string
 	files          []File
 	childDirectory []Directory
@@ -36,6 +37,7 @@ type Directory struct {
 
 type Context struct {
 	paths           []string
+	directories     []Directory
 	fileCacheReady  bool
 	mu              sync.Mutex
 	thumbnailPaths  map[int]string
@@ -68,6 +70,17 @@ func (cx *Context) getVideoThumbnailPathFor(id int) (string, error) {
 func (cx *Context) getNextThumbnailPath() string {
 	cx.nextThumbnailId++
 	return fmt.Sprintf("/cache/thumbnail%d.jpg", cx.nextThumbnailId)
+}
+
+func (cx *Context) getNextDirectoryId() int {
+	return len(cx.directories)
+}
+
+func (cx *Context) getDirectoryById(id int) (*Directory, error) {
+	if id < 0 || id >= len(cx.directories) {
+		return nil, fmt.Errorf("invalid directory id %d", id)
+	}
+	return &cx.directories[id], nil
 }
 
 func (cx *Context) cleanCache() {
@@ -201,7 +214,10 @@ func addDirRootToContext(cx *Context, path string) (Directory, error) {
 		return Directory{}, err
 	}
 	name := filepath.Base(path)
-	return Directory{childDirectory: childDirectory, files: files, name: name}, nil
+	dirId := len(cx.directories)
+	directory := Directory{id: dirId, childDirectory: childDirectory, files: files, name: name}
+	cx.directories = append(cx.directories, directory)
+	return directory, nil
 }
 
 type DirectoryData struct {
@@ -313,7 +329,7 @@ func fileDataInner(cx *Context, directory *Directory, path string, limit int) []
 }
 
 func main() {
-	cx := Context{paths: make([]string, 0)}
+	cx := Context{paths: make([]string, 0), directories: make([]Directory, 0)}
 	cx.cleanCache()
 	dataPath := os.Args[1]
 	dir, err := addDirRootToContext(&cx, dataPath)
@@ -363,6 +379,17 @@ func main() {
 		}
 		returnFileById(&cx, c, id)
 	})
+	r.GET("/image-grid/:directoryId", func(c *gin.Context) {
+		directoryIdStr := c.Param("directoryId")
+		directoryId, err := strconv.Atoi(directoryIdStr)
+		if err != nil {
+			c.HTML(http.StatusNotFound, "invalidFile.tmpl", gin.H{
+				"reason": err,
+			})
+			return
+		}
+		returnImageGrid(&cx, c, directoryId)
+	})
 	r.GET("/slides/:id/*path", func(c *gin.Context) {
 		path := c.Param("path")
 		idStr := c.Param("id")
@@ -383,7 +410,6 @@ func main() {
 		names := ""
 		index := index(directory.files, id)
 		isVideo := directory.files[index].kind == Video
-		others := getFilesInRange(&cx, directory, path, index)
 		prev := prevUrl(directory.files, index, path)
 		next := nextUrl(directory.files, index, path)
 		resourceUrl := imageResourceUrlById(id)
@@ -393,7 +419,7 @@ func main() {
 			"ResourceUrl": resourceUrl,
 			"PrevUrl":     prev,
 			"NextUrl":     next,
-			"Others":      others,
+			"DirectoryId": directory.id,
 		})
 	})
 
@@ -438,11 +464,10 @@ func prevUrl(files []File, i int, path string) string {
 
 func returnDirectoryPage(c *gin.Context, cx *Context, directory *Directory, path string) {
 	Directories := childDirectoryData(directory, path)
-	files := fileDataInner(cx, directory, path, 10)
 	c.HTML(http.StatusOK, "directoryData.tmpl", gin.H{
 		"name":        directory.name,
 		"Directories": Directories,
-		"Files":       files,
+		"DirectoryId": directory.id,
 	})
 }
 
@@ -488,4 +513,18 @@ func returnFileById(cx *Context, c *gin.Context, id int) {
 		return
 	}
 	returnFileByPath(c, path)
+}
+
+func returnImageGrid(cx *Context, c *gin.Context, directoryId int) {
+	directory, err := cx.getDirectoryById(directoryId)
+	if err != nil {
+		c.HTML(http.StatusNotFound, "invalidFile.tmpl", gin.H{
+			"reason": err,
+		})
+		return
+	}
+	files := fileDataInner(cx, directory, "", 0) // Get all files, no limit
+	c.HTML(http.StatusOK, "imageGrid.tmpl", gin.H{
+		"Files": files,
+	})
 }
