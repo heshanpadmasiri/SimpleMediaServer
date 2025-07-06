@@ -91,7 +91,6 @@ li:hover {
     text-decoration: none;
 }
 
-
 /* Media viewer */
 .media-viewer {
     display: flex;
@@ -135,6 +134,8 @@ li:hover {
     .image-grid img {
         height: 120px;
     }
+
+
 
     .media-viewer img,
     .media-viewer video {
