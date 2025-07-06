@@ -384,6 +384,7 @@ func main() {
 		}
 		returnImageGrid(&cx, c, directoryId)
 	})
+
 	r.GET("/slides/:id/*path", func(c *gin.Context) {
 		path := c.Param("path")
 		idStr := c.Param("id")

@@ -1,5 +1,7 @@
 <div class="image-grid">
     {{range .Files}}
-        <a href="{{.Url}}"><img src="{{.ThumnailUrl}}" alt="{{.Name}}"></a>
+        <a href="{{.Url}}">
+            <img src="{{.ThumnailUrl}}" alt="{{.Name}}" loading="lazy">
+        </a>
     {{end}}
-</div> 
+</div>
