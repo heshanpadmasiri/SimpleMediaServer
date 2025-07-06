@@ -358,9 +358,7 @@ func main() {
 		idStr := c.Param("id")
 		id, err := strconv.Atoi(idStr)
 		if err != nil {
-			c.HTML(http.StatusNotFound, "invalidFile.tmpl", gin.H{
-				"reason": err,
-			})
+			handleInvalidFile(c, err.Error())
 			return
 		}
 		returnFileById(&cx, c, id)
@@ -372,9 +370,7 @@ func main() {
 		idStr := c.Param("id")
 		id, err := strconv.Atoi(idStr)
 		if err != nil {
-			c.HTML(http.StatusNotFound, "invalidFile.tmpl", gin.H{
-				"reason": err,
-			})
+			handleInvalidFile(c, err.Error())
 			return
 		}
 		returnFileById(&cx, c, id)
@@ -383,9 +379,7 @@ func main() {
 		directoryIdStr := c.Param("directoryId")
 		directoryId, err := strconv.Atoi(directoryIdStr)
 		if err != nil {
-			c.HTML(http.StatusNotFound, "invalidFile.tmpl", gin.H{
-				"reason": err,
-			})
+			handleInvalidFile(c, err.Error())
 			return
 		}
 		returnImageGrid(&cx, c, directoryId)
@@ -402,9 +396,7 @@ func main() {
 		}
 		id, err := strconv.Atoi(idStr)
 		if err != nil {
-			c.HTML(http.StatusNotFound, "invalidFile.tmpl", gin.H{
-				"reason": err,
-			})
+			handleInvalidFile(c, err.Error())
 			return
 		}
 		names := ""
@@ -474,18 +466,14 @@ func returnDirectoryPage(c *gin.Context, cx *Context, directory *Directory, path
 func returnFileByPath(c *gin.Context, path string) {
 	file, err := os.Open(path)
 	if err != nil {
-		c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
-			"reason": err,
-		})
+		handleError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 	defer file.Close()
 
 	fileInfo, err := file.Stat()
 	if err != nil {
-		c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
-			"reason": err,
-		})
+		handleError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -494,9 +482,7 @@ func returnFileByPath(c *gin.Context, path string) {
 
 	_, err = file.Read(buffer)
 	if err != nil {
-		c.HTML(http.StatusInternalServerError, "error.tmpl", gin.H{
-			"reason": err,
-		})
+		handleError(c, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -507,9 +493,7 @@ func returnFileByPath(c *gin.Context, path string) {
 func returnFileById(cx *Context, c *gin.Context, id int) {
 	path, err := cx.getPath(id)
 	if err != nil {
-		c.HTML(http.StatusNotFound, "invalidFile.tmpl", gin.H{
-			"reason": err,
-		})
+		handleInvalidFile(c, err.Error())
 		return
 	}
 	returnFileByPath(c, path)
@@ -518,13 +502,25 @@ func returnFileById(cx *Context, c *gin.Context, id int) {
 func returnImageGrid(cx *Context, c *gin.Context, directoryId int) {
 	directory, err := cx.getDirectoryById(directoryId)
 	if err != nil {
-		c.HTML(http.StatusNotFound, "invalidFile.tmpl", gin.H{
-			"reason": err,
-		})
+		handleInvalidFile(c, err.Error())
 		return
 	}
 	files := fileDataInner(cx, directory, "", 0) // Get all files, no limit
 	c.HTML(http.StatusOK, "imageGrid.tmpl", gin.H{
 		"Files": files,
+	})
+}
+
+func handleError(c *gin.Context, statusCode int, reason string) {
+	log.Printf("Error: %s", reason)
+	c.HTML(statusCode, "error.tmpl", gin.H{
+		"reason": reason,
+	})
+}
+
+func handleInvalidFile(c *gin.Context, reason string) {
+	log.Printf("Invalid file error: %s", reason)
+	c.HTML(http.StatusNotFound, "invalidFile.tmpl", gin.H{
+		"reason": reason,
 	})
 }
