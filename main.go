@@ -322,6 +322,7 @@ func main() {
 	}
 	r := gin.Default()
 	r.LoadHTMLGlob("templates/*")
+	r.Static("/static", "./static")
 	r.GET("/", func(c *gin.Context) {
 		returnDirectoryPage(c, &cx, &dir, "")
 	})
