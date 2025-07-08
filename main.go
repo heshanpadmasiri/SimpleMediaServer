@@ -516,7 +516,7 @@ func main() {
 	})
 
 	fmt.Println(rootDir)
-	r.Run()
+	r.Run(fmt.Sprintf(":%d", config.Port))
 }
 
 func getIndexRange(index int) (int, int) {

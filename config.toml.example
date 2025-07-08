@@ -1,6 +1,9 @@
 # SimpleMediaServer Configuration
 # This file contains the configuration for the SimpleMediaServer
 
+# Port to run the server on (optional, default 8080)
+# Port = 8080
+
 # Multiple media sources (preferred)
 MediaSources = [
     "./testData",

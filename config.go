@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -11,6 +12,7 @@ import (
 type Config struct {
 	MediaSource  string   `toml:"MediaSource"`  // Single media source (legacy)
 	MediaSources []string `toml:"MediaSources"` // Multiple media sources (new)
+	Port         int      `toml:"Port"`
 }
 
 func loadConfig() (*Config, error) {
@@ -71,5 +73,12 @@ func loadConfigFromFile(path string) (*Config, error) {
 
 	// Update the config with the resolved paths
 	config.MediaSources = mediaPaths
+
+	// Set default port if not set
+	if config.Port == 0 {
+		config.Port = 8080
+		log.Println("Port not set in config, using default 8080")
+	}
+
 	return &config, nil
 }
