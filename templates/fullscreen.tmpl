@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Name}} - Fullscreen</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+
+        .fullscreen-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #000;
+        }
+
+        .fullscreen-image {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            user-select: none;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+        }
+
+        .fullscreen-video {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .navigation-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .nav-button {
+            width: 60px;
+            height: 100%;
+            background: linear-gradient(to right, rgba(0,0,0,0.3), transparent);
+            border: none;
+            cursor: pointer;
+            pointer-events: auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 24px;
+            transition: background 0.3s ease;
+        }
+
+        .nav-button:hover {
+            background: linear-gradient(to right, rgba(0,0,0,0.6), rgba(0,0,0,0.3));
+        }
+
+        .nav-button.next {
+            background: linear-gradient(to left, rgba(0,0,0,0.3), transparent);
+        }
+
+        .nav-button.next:hover {
+            background: linear-gradient(to left, rgba(0,0,0,0.6), rgba(0,0,0,0.3));
+        }
+
+        .nav-button.hidden {
+            opacity: 0;
+        }
+
+        .close-button {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 40px;
+            height: 40px;
+            background: rgba(0,0,0,0.7);
+            border: none;
+            border-radius: 50%;
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            z-index: 20;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.3s ease;
+        }
+
+        .close-button:hover {
+            background: rgba(0,0,0,0.9);
+        }
+
+        .image-counter {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            z-index: 20;
+        }
+
+        @media (max-width: 768px) {
+            .nav-button {
+                width: 40px;
+            }
+            
+            .close-button {
+                top: 10px;
+                right: 10px;
+                width: 35px;
+                height: 35px;
+                font-size: 16px;
+            }
+            
+            .image-counter {
+                bottom: 10px;
+                padding: 6px 12px;
+                font-size: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="fullscreen-container" id="fullscreenContainer">
+        {{if .IsVideo}}
+            <video class="fullscreen-video" controls>
+                <source src="{{.ResourceUrl}}" type="video/mp4">
+                Your browser does not support the video tag.
+            </video>
+        {{else}}
+            <img class="fullscreen-image" src="{{.ResourceUrl}}" alt="{{.Name}}" id="fullscreenImage">
+        {{end}}
+        
+        <div class="navigation-overlay">
+            <button class="nav-button prev" onclick="navigateTo('{{.PrevUrl}}')" {{if .IsFirst}}style="opacity: 0.3; pointer-events: none;"{{end}}>
+                ‹
+            </button>
+            <button class="nav-button next" onclick="navigateTo('{{.NextUrl}}')" {{if .IsLast}}style="opacity: 0.3; pointer-events: none;"{{end}}>
+                ›
+            </button>
+        </div>
+        
+        <button class="close-button" onclick="closeFullscreen()">×</button>
+        
+        <div class="image-counter">
+            {{.CurrentIndex}} / {{.TotalCount}}
+        </div>
+    </div>
+
+    <script>
+        let startX = 0;
+        let startY = 0;
+        let isDragging = false;
+        let currentUrl = window.location.href;
+
+        // Touch/swipe navigation
+        document.addEventListener('touchstart', function(e) {
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+            isDragging = true;
+        });
+
+        document.addEventListener('touchmove', function(e) {
+            if (!isDragging) return;
+            
+            e.preventDefault();
+            
+            const currentX = e.touches[0].clientX;
+            const currentY = e.touches[0].clientY;
+            const diffX = startX - currentX;
+            const diffY = startY - currentY;
+            
+            // Only handle horizontal swipes
+            if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 50) {
+                if (diffX > 0) {
+                    // Swipe left - go to next
+                    const nextButton = document.querySelector('.nav-button.next');
+                    if (nextButton && !nextButton.disabled) {
+                        navigateTo('{{.NextUrl}}');
+                    }
+                } else {
+                    // Swipe right - go to previous
+                    const prevButton = document.querySelector('.nav-button.prev');
+                    if (prevButton && !prevButton.disabled) {
+                        navigateTo('{{.PrevUrl}}');
+                    }
+                }
+                isDragging = false;
+            }
+        });
+
+        document.addEventListener('touchend', function(e) {
+            isDragging = false;
+        });
+
+        // Keyboard navigation
+        document.addEventListener('keydown', function(e) {
+            switch(e.key) {
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    const prevButton = document.querySelector('.nav-button.prev');
+                    if (prevButton && !prevButton.disabled) {
+                        navigateTo('{{.PrevUrl}}');
+                    }
+                    break;
+                case 'ArrowRight':
+                    e.preventDefault();
+                    const nextButton = document.querySelector('.nav-button.next');
+                    if (nextButton && !nextButton.disabled) {
+                        navigateTo('{{.NextUrl}}');
+                    }
+                    break;
+                case 'Escape':
+                    e.preventDefault();
+                    closeFullscreen();
+                    break;
+            }
+        });
+
+        // Mouse wheel navigation
+        document.addEventListener('wheel', function(e) {
+            e.preventDefault();
+            if (e.deltaX > 0 || e.deltaY > 0) {
+                // Scroll down/right - go to next
+                const nextButton = document.querySelector('.nav-button.next');
+                if (nextButton && !nextButton.disabled) {
+                    navigateTo('{{.NextUrl}}');
+                }
+            } else {
+                // Scroll up/left - go to previous
+                const prevButton = document.querySelector('.nav-button.prev');
+                if (prevButton && !prevButton.disabled) {
+                    navigateTo('{{.PrevUrl}}');
+                }
+            }
+        });
+
+        function navigateTo(url) {
+            if (url && url !== currentUrl) {
+                window.location.href = url;
+            }
+        }
+
+        function closeFullscreen() {
+            // Go back to the slide view
+            const slideUrl = currentUrl.replace('/fullscreen/', '/slides/');
+            window.location.href = slideUrl;
+        }
+
+        // Prevent context menu on image
+        document.addEventListener('contextmenu', function(e) {
+            e.preventDefault();
+        });
+    </script>
+</body>
+</html> 

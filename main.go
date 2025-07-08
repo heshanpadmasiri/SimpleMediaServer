@@ -260,6 +260,16 @@ func slideUrl(path string, file File) string {
 	return prefix + id + "/" + basePath
 }
 
+func fullscreenUrl(path string, file File) string {
+	prefix := "/fullscreen/"
+	basePath := strings.Trim(path, "/")
+	id := strconv.Itoa(file.id)
+	if basePath == "" {
+		return prefix + id
+	}
+	return prefix + id + "/" + basePath
+}
+
 func fileResourceUrl(file File) string {
 	switch file.kind {
 	case Video:
@@ -400,19 +410,79 @@ func main() {
 			handleInvalidFile(c, err.Error())
 			return
 		}
-		names := ""
 		index := index(directory.files, id)
+		if index == -1 {
+			handleInvalidFile(c, "File not found")
+			return
+		}
 		isVideo := directory.files[index].kind == Video
 		prev := prevUrl(directory.files, index, path)
 		next := nextUrl(directory.files, index, path)
 		resourceUrl := imageResourceUrlById(id)
 		c.HTML(http.StatusOK, "slide.tmpl", gin.H{
-			"Name":        names,
+			"Name":        directory.files[index].name,
 			"isVideo":     isVideo,
 			"ResourceUrl": resourceUrl,
 			"PrevUrl":     prev,
 			"NextUrl":     next,
 			"DirectoryId": directory.id,
+			"FileId":      id,
+			"Path":        path,
+		})
+	})
+
+	r.GET("/fullscreen/:id/*path", func(c *gin.Context) {
+		path := c.Param("path")
+		idStr := c.Param("id")
+		directory := getDirectoryByPath(&dir, path)
+		if directory == nil {
+			c.HTML(http.StatusNotFound, "invalidPath.tmpl", gin.H{
+				"path": path,
+			})
+			return
+		}
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			handleInvalidFile(c, err.Error())
+			return
+		}
+		index := index(directory.files, id)
+		if index == -1 {
+			handleInvalidFile(c, "File not found")
+			return
+		}
+
+		isVideo := directory.files[index].kind == Video
+		prev := prevFullscreenUrl(directory.files, index, path)
+		next := nextFullscreenUrl(directory.files, index, path)
+		resourceUrl := imageResourceUrlById(id)
+
+		// Count total images/videos for counter
+		totalCount := 0
+		for _, file := range directory.files {
+			if file.kind == Image || file.kind == Video {
+				totalCount++
+			}
+		}
+
+		// Count current position (only images/videos)
+		currentIndex := 1
+		for i := 0; i < index; i++ {
+			if directory.files[i].kind == Image || directory.files[i].kind == Video {
+				currentIndex++
+			}
+		}
+
+		c.HTML(http.StatusOK, "fullscreen.tmpl", gin.H{
+			"Name":         directory.files[index].name,
+			"IsVideo":      isVideo,
+			"ResourceUrl":  resourceUrl,
+			"PrevUrl":      prev,
+			"NextUrl":      next,
+			"CurrentIndex": currentIndex,
+			"TotalCount":   totalCount,
+			"IsFirst":      index == 0,
+			"IsLast":       index == len(directory.files)-1,
 		})
 	})
 
@@ -452,6 +522,22 @@ func prevUrl(files []File, i int, path string) string {
 		return slideUrl(path, files[i-1])
 	} else {
 		return slideUrl(path, files[len(files)-1])
+	}
+}
+
+func nextFullscreenUrl(files []File, i int, path string) string {
+	if i+1 < len(files) {
+		return fullscreenUrl(path, files[i+1])
+	} else {
+		return fullscreenUrl(path, files[0])
+	}
+}
+
+func prevFullscreenUrl(files []File, i int, path string) string {
+	if i-1 >= 0 {
+		return fullscreenUrl(path, files[i-1])
+	} else {
+		return fullscreenUrl(path, files[len(files)-1])
 	}
 }
 
