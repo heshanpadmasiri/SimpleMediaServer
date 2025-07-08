@@ -1,0 +1,22 @@
+# SimpleMediaServer Configuration
+# This file contains the configuration for the SimpleMediaServer
+
+# Port to run the server on (optional, default 8080)
+# Port = 8080
+
+# Multiple media sources (preferred)
+MediaSources = [
+    "./testData",
+    # Add more paths as needed:
+    # "/Users/username/Pictures"
+    # "/home/user/Videos"
+    # "C:\\Users\\username\\Documents\\Photos"
+]
+
+# Single media source (legacy, will be ignored if MediaSources is provided)
+# MediaSource = "./testData"
+
+# Example paths:
+# MediaSource = "/Users/username/Pictures"
+# MediaSource = "/home/user/Videos"
+# MediaSource = "C:\\Users\\username\\Documents\\Photos" 

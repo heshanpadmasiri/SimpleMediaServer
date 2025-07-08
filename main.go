@@ -341,20 +341,49 @@ func fileDataInner(cx *Context, directory *Directory, path string, limit int) []
 func main() {
 	cx := Context{paths: make([]string, 0), directories: make([]Directory, 0)}
 	cx.cleanCache()
-	dataPath := os.Args[1]
-	dir, err := addDirRootToContext(&cx, dataPath)
+
+	// Load configuration
+	config, err := loadConfig()
 	if err != nil {
-		panic(err)
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
+
+	var rootDir Directory
+
+	if len(config.MediaSources) == 1 {
+		// Single media source - use it directly
+		dir, err := addDirRootToContext(&cx, config.MediaSources[0])
+		if err != nil {
+			panic(err)
+		}
+		rootDir = dir
+	} else {
+		// Multiple media sources - create virtual directory
+		directories := make([]Directory, 0, len(config.MediaSources))
+		for _, path := range config.MediaSources {
+			dir, err := addDirRootToContext(&cx, path)
+			if err != nil {
+				log.Printf("Warning: failed to add directory %s: %v", path, err)
+				continue
+			}
+			directories = append(directories, dir)
+		}
+
+		if len(directories) == 0 {
+			log.Fatal("No valid media sources found")
+		}
+
+		rootDir = combineDirectories(&cx, directories)
 	}
 	r := gin.Default()
 	r.LoadHTMLGlob("templates/*")
 	r.Static("/static", "./static")
 	r.GET("/", func(c *gin.Context) {
-		returnDirectoryPage(c, &cx, &dir, "")
+		returnDirectoryPage(c, &cx, &rootDir, "")
 	})
 	r.GET("/files/*path", func(c *gin.Context) {
 		path := c.Param("path")
-		directory := getDirectoryByPath(&dir, path)
+		directory := getDirectoryByPath(&rootDir, path)
 		if directory == nil {
 			c.HTML(http.StatusNotFound, "invalidPath.tmpl", gin.H{
 				"path": path,
@@ -398,7 +427,7 @@ func main() {
 	r.GET("/slides/:id/*path", func(c *gin.Context) {
 		path := c.Param("path")
 		idStr := c.Param("id")
-		directory := getDirectoryByPath(&dir, path)
+		directory := getDirectoryByPath(&rootDir, path)
 		if directory == nil {
 			c.HTML(http.StatusNotFound, "invalidPath.tmpl", gin.H{
 				"path": path,
@@ -434,7 +463,7 @@ func main() {
 	r.GET("/fullscreen/:id/*path", func(c *gin.Context) {
 		path := c.Param("path")
 		idStr := c.Param("id")
-		directory := getDirectoryByPath(&dir, path)
+		directory := getDirectoryByPath(&rootDir, path)
 		if directory == nil {
 			c.HTML(http.StatusNotFound, "invalidPath.tmpl", gin.H{
 				"path": path,
@@ -486,8 +515,8 @@ func main() {
 		})
 	})
 
-	fmt.Println(dir)
-	r.Run()
+	fmt.Println(rootDir)
+	r.Run(fmt.Sprintf(":%d", config.Port))
 }
 
 func getIndexRange(index int) (int, int) {
@@ -610,4 +639,20 @@ func handleInvalidFile(c *gin.Context, reason string) {
 	c.HTML(http.StatusNotFound, "invalidFile.tmpl", gin.H{
 		"reason": reason,
 	})
+}
+
+// combineDirectories creates a virtual directory that contains all the provided directories as child directories
+func combineDirectories(cx *Context, directories []Directory) Directory {
+	// Create a virtual root directory
+	virtualDir := Directory{
+		id:             len(cx.directories),
+		name:           "Collections",
+		files:          []File{},
+		childDirectory: directories,
+	}
+
+	// Add the virtual directory to the context
+	cx.directories = append(cx.directories, virtualDir)
+
+	return virtualDir
 }
