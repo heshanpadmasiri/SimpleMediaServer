@@ -5,11 +5,9 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/gin-gonic/gin"
 )
@@ -36,12 +34,8 @@ type Directory struct {
 }
 
 type Context struct {
-	paths           []string
-	directories     []Directory
-	fileCacheReady  bool
-	mu              sync.Mutex
-	thumbnailPaths  map[int]string
-	nextThumbnailId int
+	paths       []string
+	directories []Directory
 }
 
 // given file index get the path from context
@@ -50,26 +44,6 @@ func (cx *Context) getPath(id int) (string, error) {
 		return "", fmt.Errorf("invalid id %d", id)
 	}
 	return cx.paths[id], nil
-}
-
-func (cx *Context) getVideoThumbnailPathFor(id int) (string, error) {
-	cx.mu.Lock()
-	defer cx.mu.Unlock()
-	if !cx.fileCacheReady {
-		err := cx.initFileCache()
-		if err != nil {
-			return "", err
-		}
-	}
-	if path, ok := cx.thumbnailPaths[id]; ok {
-		return path, nil
-	}
-	return cx.generateThumbnailForVideo(id)
-}
-
-func (cx *Context) getNextThumbnailPath() string {
-	cx.nextThumbnailId++
-	return fmt.Sprintf("/cache/thumbnail%d.jpg", cx.nextThumbnailId)
 }
 
 func (cx *Context) getNextDirectoryId() int {
@@ -81,56 +55,6 @@ func (cx *Context) getDirectoryById(id int) (*Directory, error) {
 		return nil, fmt.Errorf("invalid directory id %d", id)
 	}
 	return &cx.directories[id], nil
-}
-
-func (cx *Context) cleanCache() {
-	exec.Command("rm", "-rf", "./cache").Output()
-}
-
-func (cx *Context) generateThumbnailForVideo(id int) (string, error) {
-	videoPath, err := cx.getPath(id)
-	if err != nil {
-		return "", err
-	}
-	// TODO: allow for concurrent generation of thumbnails
-	// -- Currently we can't do this becuase we have a lock at the begining of image generation
-	path, err := cx.generateThumbnailForVideoInner(videoPath)
-	if err != nil {
-		cx.thumbnailPaths[id] = "/cache/error.jpg"
-	} else {
-		cx.thumbnailPaths[id] = path
-	}
-	return path, err
-}
-
-func (cx *Context) generateThumbnailForVideoInner(videoPath string) (string, error) {
-	// generate a thumbnail for the video
-	thumbnailPath := cx.getNextThumbnailPath()
-	cmd := exec.Command("ffmpeg", "-i", videoPath, "-ss", "00:00:01.000", "-vframes", "1", thumbnailPath)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		fmt.Println("Error executing ffmpeg:", err)
-		fmt.Println("ffmpeg output:", string(output))
-		return "", err
-	}
-	return thumbnailPath, nil
-}
-
-func (cx *Context) initFileCache() error {
-	// check if a directory called "cache" exists in the current directory, if so delete it
-	// create a new directory called "cache"
-	_, err := os.Stat("cache")
-	if os.IsNotExist(err) {
-		err := os.Mkdir("cache", 0755)
-		if err != nil {
-			return err
-		}
-	} else if err != nil {
-		return err
-	}
-	cx.thumbnailPaths = make(map[int]string)
-	cx.fileCacheReady = true
-	return nil
 }
 
 func splitPath(path string) (string, string) {
@@ -167,11 +91,11 @@ func addFileToContext(cx *Context, path string) (File, error) {
 }
 
 func fileKind(path string) FileKind {
-	ext := filepath.Ext(path)
+	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
-	case ".jpg", ".jpeg", ".png", ".gif":
+	case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg":
 		return Image
-	case ".mp4", ".webm":
+	case ".mp4", ".webm", ".ogg", ".ogv", ".mov":
 		return Video
 	default:
 		return Other
@@ -284,11 +208,9 @@ func fileResourceUrl(file File) string {
 func fileThumbnailUrl(cx *Context, file File) string {
 	switch file.kind {
 	case Video:
-		path, error := cx.getVideoThumbnailPathFor(file.id)
-		if error != nil {
-			return ""
-		}
-		return path
+		// For videos, use the video file itself as thumbnail
+		// The browser will display the first frame
+		return videoResourceUrlById(file.id)
 	case Image:
 		return imageResourceUrlById(file.id)
 	default:
@@ -319,7 +241,13 @@ func getFilesInRangeInner(cx *Context, path string, files []File) []FileData {
 		if file.kind == Other {
 			continue
 		}
-		data = append(data, FileData{Name: file.name, Url: slideUrl(path, file), ResourceUrl: fileResourceUrl(file), ThumnailUrl: fileThumbnailUrl(cx, file)})
+		data = append(data, FileData{
+			Name:        file.name, 
+			Url:         slideUrl(path, file), 
+			ResourceUrl: fileResourceUrl(file), 
+			ThumnailUrl: fileThumbnailUrl(cx, file),
+			IsVideo:     file.kind == Video,
+		})
 	}
 	return data
 }
@@ -330,7 +258,13 @@ func fileDataInner(cx *Context, directory *Directory, path string, limit int) []
 		if file.kind == Other {
 			continue
 		}
-		data = append(data, FileData{Name: file.name, Url: slideUrl(path, file), ResourceUrl: fileResourceUrl(file), ThumnailUrl: fileThumbnailUrl(cx, file)})
+		data = append(data, FileData{
+			Name:        file.name, 
+			Url:         slideUrl(path, file), 
+			ResourceUrl: fileResourceUrl(file), 
+			ThumnailUrl: fileThumbnailUrl(cx, file),
+			IsVideo:     file.kind == Video,
+		})
 		if len(data) == limit {
 			break
 		}
@@ -340,7 +274,6 @@ func fileDataInner(cx *Context, directory *Directory, path string, limit int) []
 
 func main() {
 	cx := Context{paths: make([]string, 0), directories: make([]Directory, 0)}
-	cx.cleanCache()
 
 	// Load configuration
 	config, err := loadConfig()
@@ -402,9 +335,6 @@ func main() {
 		}
 		returnFileById(&cx, c, id)
 	})
-	r.GET("/cache/:name", func(c *gin.Context) {
-		returnFileByPath(c, fmt.Sprintf("cache/%s", c.Param("name")))
-	})
 	r.GET("/video/:id", func(c *gin.Context) {
 		idStr := c.Param("id")
 		id, err := strconv.Atoi(idStr)
@@ -447,7 +377,7 @@ func main() {
 		isVideo := directory.files[index].kind == Video
 		prev := prevUrl(directory.files, index, path)
 		next := nextUrl(directory.files, index, path)
-		resourceUrl := imageResourceUrlById(id)
+		resourceUrl := fileResourceUrl(directory.files[index])
 		c.HTML(http.StatusOK, "slide.tmpl", gin.H{
 			"Name":        directory.files[index].name,
 			"isVideo":     isVideo,
@@ -484,7 +414,7 @@ func main() {
 		isVideo := directory.files[index].kind == Video
 		prev := prevFullscreenUrl(directory.files, index, path)
 		next := nextFullscreenUrl(directory.files, index, path)
-		resourceUrl := imageResourceUrlById(id)
+		resourceUrl := fileResourceUrl(directory.files[index])
 
 		// Count total images/videos for counter
 		totalCount := 0
@@ -593,17 +523,8 @@ func returnFileByPath(c *gin.Context, path string) {
 		return
 	}
 
-	fileSize := fileInfo.Size()
-	buffer := make([]byte, fileSize)
-
-	_, err = file.Read(buffer)
-	if err != nil {
-		handleError(c, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	contentType := http.DetectContentType(buffer)
-	c.Data(http.StatusOK, contentType, buffer)
+	// Use http.ServeContent for better HTTP serving with range requests support
+	http.ServeContent(c.Writer, c.Request, fileInfo.Name(), fileInfo.ModTime(), file)
 }
 
 func returnFileById(cx *Context, c *gin.Context, id int) {
