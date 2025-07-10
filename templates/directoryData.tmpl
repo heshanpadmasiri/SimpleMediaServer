@@ -17,7 +17,7 @@
     </ul>
     <h2>Files</h2>
     <div id="image-grid-container" 
-         hx-get="/image-grid/{{.DirectoryId}}" 
+         hx-get="/image-grid/{{.DirectoryId}}/{{.Path}}"
          hx-trigger="load"
          hx-target="#image-grid-container">
     </div>

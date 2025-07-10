@@ -12,7 +12,7 @@
     <div class="media-viewer">
         {{if .isVideo}}
             <video controls>
-                <source src="{{.ResourceUrl}}" type="video/mp4">
+                <source src="{{.ResourceUrl}}">
                 Your browser does not support the video tag.
             </video>
         {{else}}
@@ -23,7 +23,7 @@
     </div>
 
     <div id="image-grid-container" 
-         hx-get="/image-grid/{{.DirectoryId}}" 
+         hx-get="/image-grid/{{.DirectoryId}}/{{.Path}}"
          hx-trigger="load"
          hx-target="#image-grid-container">
     </div>
