@@ -349,14 +349,15 @@ func main() {
 		}
 		returnFileById(&cx, c, id)
 	})
-	r.GET("/image-grid/:directoryId", func(c *gin.Context) {
+	r.GET("/image-grid/:directoryId/*path", func(c *gin.Context) {
 		directoryIdStr := c.Param("directoryId")
 		directoryId, err := strconv.Atoi(directoryIdStr)
 		if err != nil {
 			handleInvalidFile(c, err.Error())
 			return
 		}
-		returnImageGrid(&cx, c, directoryId)
+		path := c.Param("path")
+		returnImageGrid(&cx, c, directoryId, path)
 	})
 
 	r.GET("/slides/:id/*path", func(c *gin.Context) {
@@ -511,6 +512,7 @@ func returnDirectoryPage(c *gin.Context, cx *Context, directory *Directory, path
 		"name":        directory.name,
 		"Directories": Directories,
 		"DirectoryId": directory.id,
+		"Path":        path,
 	})
 }
 
@@ -541,13 +543,13 @@ func returnFileById(cx *Context, c *gin.Context, id int) {
 	returnFileByPath(c, path)
 }
 
-func returnImageGrid(cx *Context, c *gin.Context, directoryId int) {
+func returnImageGrid(cx *Context, c *gin.Context, directoryId int, path string) {
 	directory, err := cx.getDirectoryById(directoryId)
 	if err != nil {
 		handleInvalidFile(c, err.Error())
 		return
 	}
-	files := fileDataInner(cx, directory, "", 0) // Get all files, no limit
+	files := fileDataInner(cx, directory, path, 0) // Get all files, no limit
 	c.HTML(http.StatusOK, "imageGrid.tmpl", gin.H{
 		"Files": files,
 	})
