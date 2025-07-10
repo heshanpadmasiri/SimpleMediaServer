@@ -1,7 +1,14 @@
 <div class="image-grid">
     {{range .Files}}
         <a href="{{.Url}}">
-            <img src="{{.ThumnailUrl}}" alt="{{.Name}}" loading="lazy">
+            {{if .IsVideo}}
+            <video controls>
+                <source src="{{.ResourceUrl}}">
+                Your browser does not support the video tag.
+            </video>
+            {{else}}
+                <img src="{{.ThumnailUrl}}" alt="{{.Name}}" loading="lazy">
+            {{end}}
         </a>
     {{end}}
 </div>
