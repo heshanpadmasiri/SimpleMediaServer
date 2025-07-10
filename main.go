@@ -210,6 +210,7 @@ func fileThumbnailUrl(cx *Context, file File) string {
 	case Video:
 		// For videos, use the video file itself as thumbnail
 		// The browser will display the first frame
+		// FIXME: for this to work we need to use a video tag not an img tag
 		return videoResourceUrlById(file.id)
 	case Image:
 		return imageResourceUrlById(file.id)
@@ -242,9 +243,9 @@ func getFilesInRangeInner(cx *Context, path string, files []File) []FileData {
 			continue
 		}
 		data = append(data, FileData{
-			Name:        file.name, 
-			Url:         slideUrl(path, file), 
-			ResourceUrl: fileResourceUrl(file), 
+			Name:        file.name,
+			Url:         slideUrl(path, file),
+			ResourceUrl: fileResourceUrl(file),
 			ThumnailUrl: fileThumbnailUrl(cx, file),
 			IsVideo:     file.kind == Video,
 		})
@@ -258,10 +259,14 @@ func fileDataInner(cx *Context, directory *Directory, path string, limit int) []
 		if file.kind == Other {
 			continue
 		}
+		url := slideUrl(path, file)
+		if file.kind == Video {
+			url = fileResourceUrl(file)
+		}
 		data = append(data, FileData{
-			Name:        file.name, 
-			Url:         slideUrl(path, file), 
-			ResourceUrl: fileResourceUrl(file), 
+			Name:        file.name,
+			Url:         url,
+			ResourceUrl: fileResourceUrl(file),
 			ThumnailUrl: fileThumbnailUrl(cx, file),
 			IsVideo:     file.kind == Video,
 		})
