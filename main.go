@@ -150,11 +150,11 @@ type DirectoryData struct {
 }
 
 type FileData struct {
-	Name        string
-	Url         string
-	ResourceUrl string
-	ThumnailUrl string
-	IsVideo     bool
+	Name         string
+	Url          string
+	ResourceUrl  string
+	ThumbnailUrl string
+	IsVideo      bool
 }
 
 func directoryUrl(path, name string) string {
@@ -243,11 +243,11 @@ func getFilesInRangeInner(cx *Context, path string, files []File) []FileData {
 			continue
 		}
 		data = append(data, FileData{
-			Name:        file.name,
-			Url:         slideUrl(path, file),
-			ResourceUrl: fileResourceUrl(file),
-			ThumnailUrl: fileThumbnailUrl(cx, file),
-			IsVideo:     file.kind == Video,
+			Name:         file.name,
+			Url:          slideUrl(path, file),
+			ResourceUrl:  fileResourceUrl(file),
+			ThumbnailUrl: fileThumbnailUrl(cx, file),
+			IsVideo:      file.kind == Video,
 		})
 	}
 	return data
@@ -264,11 +264,11 @@ func fileDataInner(cx *Context, directory *Directory, path string, limit int) []
 			url = fileResourceUrl(file)
 		}
 		data = append(data, FileData{
-			Name:        file.name,
-			Url:         url,
-			ResourceUrl: fileResourceUrl(file),
-			ThumnailUrl: fileThumbnailUrl(cx, file),
-			IsVideo:     file.kind == Video,
+			Name:         file.name,
+			Url:          url,
+			ResourceUrl:  fileResourceUrl(file),
+			ThumbnailUrl: fileThumbnailUrl(cx, file),
+			IsVideo:      file.kind == Video,
 		})
 		if len(data) == limit {
 			break
