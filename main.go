@@ -20,6 +20,10 @@ const (
 	Other
 )
 
+const (
+	PageSize = 10
+)
+
 type File struct {
 	name string
 	id   int
@@ -277,6 +281,63 @@ func fileDataInner(cx *Context, directory *Directory, path string, limit int) []
 	return data
 }
 
+func fileDataInRange(cx *Context, directory *Directory, path string, start int, end int) []FileData {
+	data := make([]FileData, 0)
+	mediaFiles := make([]File, 0)
+	
+	// First collect all media files
+	for _, file := range directory.files {
+		if file.kind != Other {
+			mediaFiles = append(mediaFiles, file)
+		}
+	}
+	
+	totalFiles := len(mediaFiles)
+	if totalFiles == 0 {
+		return data
+	}
+	
+	// Handle wrap-around by normalizing indices (including negative ones)
+	for i := start; i < end; i++ {
+		index := ((i % totalFiles) + totalFiles) % totalFiles
+		file := mediaFiles[index]
+		
+		data = append(data, FileData{
+			Name:         file.name,
+			Url:          slideUrl(path, file),
+			ResourceUrl:  fileResourceUrl(file),
+			ThumbnailUrl: fileThumbnailUrl(cx, file),
+			IsVideo:      file.kind == Video,
+		})
+	}
+	
+	return data
+}
+
+func countMediaFiles(directory *Directory) int {
+	count := 0
+	for _, file := range directory.files {
+		if file.kind != Other {
+			count++
+		}
+	}
+	return count
+}
+
+func findMediaFilePosition(directory *Directory, fileId int) int {
+	position := 0
+	for _, file := range directory.files {
+		if file.kind == Other {
+			continue
+		}
+		if file.id == fileId {
+			return position
+		}
+		position++
+	}
+	return -1
+}
+
 func main() {
 	cx := Context{paths: make([]string, 0), directories: make([]Directory, 0)}
 
@@ -356,8 +417,23 @@ func main() {
 			handleInvalidFile(c, err.Error())
 			return
 		}
+		
+		startStr := c.DefaultQuery("start", "0")
+		start, err := strconv.Atoi(startStr)
+		if err != nil {
+			handleInvalidFile(c, err.Error())
+			return
+		}
+		
+		endStr := c.DefaultQuery("end", "10")
+		end, err := strconv.Atoi(endStr)
+		if err != nil {
+			handleInvalidFile(c, err.Error())
+			return
+		}
+		
 		path := c.Param("path")
-		returnImageGrid(&cx, c, directoryId, path)
+		returnImageGrid(&cx, c, directoryId, start, end, path)
 	})
 
 	r.GET("/slides/:id/*path", func(c *gin.Context) {
@@ -384,6 +460,18 @@ func main() {
 		prev := prevUrl(directory.files, index, path)
 		next := nextUrl(directory.files, index, path)
 		resourceUrl := fileResourceUrl(directory.files[index])
+		
+		// Calculate centered grid position for current file
+		currentPosition := findMediaFilePosition(directory, id)
+		totalFiles := countMediaFiles(directory)
+		gridStart := currentPosition - PageSize/2
+		gridEnd := currentPosition + PageSize/2
+		
+		// Handle negative wrap-around
+		if gridStart < 0 && totalFiles > 0 {
+			gridStart = totalFiles + gridStart
+		}
+		
 		c.HTML(http.StatusOK, "slide.tmpl", gin.H{
 			"Name":        directory.files[index].name,
 			"isVideo":     isVideo,
@@ -393,6 +481,8 @@ func main() {
 			"DirectoryId": directory.id,
 			"FileId":      id,
 			"Path":        path,
+			"GridStart":   gridStart,
+			"GridEnd":     gridEnd,
 		})
 	})
 
@@ -543,15 +633,28 @@ func returnFileById(cx *Context, c *gin.Context, id int) {
 	returnFileByPath(c, path)
 }
 
-func returnImageGrid(cx *Context, c *gin.Context, directoryId int, path string) {
+func returnImageGrid(cx *Context, c *gin.Context, directoryId int, start int, end int, path string) {
 	directory, err := cx.getDirectoryById(directoryId)
 	if err != nil {
 		handleInvalidFile(c, err.Error())
 		return
 	}
-	files := fileDataInner(cx, directory, path, 0) // Get all files, no limit
+	files := fileDataInRange(cx, directory, path, start, end)
+	nextStart := end
+	nextEnd := end + PageSize
+	totalFiles := countMediaFiles(directory)
+	
+	// Always show more button since we have wrap-around
+	// Only hide if there are no files at all
+	hasMore := totalFiles > 0
+
 	c.HTML(http.StatusOK, "imageGrid.tmpl", gin.H{
-		"Files": files,
+		"Files":       files,
+		"HasMore":     hasMore,
+		"NextStart":   nextStart,
+		"NextEnd":     nextEnd,
+		"DirectoryId": directoryId,
+		"Path":        path,
 	})
 }
 

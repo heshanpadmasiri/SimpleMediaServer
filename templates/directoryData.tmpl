@@ -18,10 +18,10 @@
         {{end}}
     </ul>
     <h2>Files</h2>
-    <div id="image-grid-container" 
-         hx-get="/image-grid/{{.DirectoryId}}/{{.Path}}"
+    <div class="image-grid" id="image-grid-container" 
+         hx-get="/image-grid/{{.DirectoryId}}/{{.Path}}?start=0&end=10"
          hx-trigger="load"
-         hx-target="#image-grid-container">
+         hx-swap="innerHTML">
     </div>
 </body>
 </html>
