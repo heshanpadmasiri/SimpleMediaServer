@@ -1,14 +1,19 @@
-<div class="image-grid">
-    {{range .Files}}
-        <a href="{{.Url}}">
-            {{if .IsVideo}}
-            <video controls>
-                <source src="{{.ResourceUrl}}">
-                Your browser does not support the video tag.
-            </video>
-            {{else}}
-                <img src="{{.ThumbnailUrl}}" alt="{{.Name}}" loading="lazy">
-            {{end}}
-        </a>
-    {{end}}
-</div>
+{{range .Files}}
+    <a href="{{.Url}}">
+        {{if .IsVideo}}
+        <video controls>
+            <source src="{{.ResourceUrl}}">
+            Your browser does not support the video tag.
+        </video>
+        {{else}}
+            <img src="{{.ThumbnailUrl}}" alt="{{.Name}}" loading="lazy">
+        {{end}}
+    </a>
+{{end}}
+{{if .HasMore}}
+    <div hx-get="/image-grid/{{.DirectoryId}}/{{.Path}}?start={{.NextStart}}&end={{.NextEnd}}"
+         hx-trigger="intersect once"
+         hx-swap="outerHTML">
+        Loading more...
+    </div>
+{{end}}

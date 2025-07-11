@@ -105,3 +105,4 @@ Files starting with '.' are automatically filtered out during scanning.
 - Where possible use HTMX for interactivity over javascript.
 - Where possible use standard html elements and go standard library.
 - Don't add comments describing each code block, instead extract blocks into functions with descriptive names.
+- When changing endpoint it is okay to break compatibility with existing clients as long as we modify all the frontend templates to use the new endpoint.
