@@ -24,7 +24,7 @@
     </div>
 
     <div class="image-grid" id="image-grid-container" 
-         hx-get="/image-grid/{{.DirectoryId}}/{{.Path}}?start=0&end=10"
+         hx-get="/image-grid/{{.DirectoryId}}/{{.Path}}?start={{.GridStart}}&end={{.GridEnd}}"
          hx-trigger="load"
          hx-swap="innerHTML">
     </div>

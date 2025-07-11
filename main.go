@@ -297,9 +297,9 @@ func fileDataInRange(cx *Context, directory *Directory, path string, start int, 
 		return data
 	}
 	
-	// Handle wrap-around by normalizing indices
+	// Handle wrap-around by normalizing indices (including negative ones)
 	for i := start; i < end; i++ {
-		index := i % totalFiles
+		index := ((i % totalFiles) + totalFiles) % totalFiles
 		file := mediaFiles[index]
 		
 		data = append(data, FileData{
@@ -322,6 +322,20 @@ func countMediaFiles(directory *Directory) int {
 		}
 	}
 	return count
+}
+
+func findMediaFilePosition(directory *Directory, fileId int) int {
+	position := 0
+	for _, file := range directory.files {
+		if file.kind == Other {
+			continue
+		}
+		if file.id == fileId {
+			return position
+		}
+		position++
+	}
+	return -1
 }
 
 func main() {
@@ -446,6 +460,18 @@ func main() {
 		prev := prevUrl(directory.files, index, path)
 		next := nextUrl(directory.files, index, path)
 		resourceUrl := fileResourceUrl(directory.files[index])
+		
+		// Calculate centered grid position for current file
+		currentPosition := findMediaFilePosition(directory, id)
+		totalFiles := countMediaFiles(directory)
+		gridStart := currentPosition - PageSize/2
+		gridEnd := currentPosition + PageSize/2
+		
+		// Handle negative wrap-around
+		if gridStart < 0 && totalFiles > 0 {
+			gridStart = totalFiles + gridStart
+		}
+		
 		c.HTML(http.StatusOK, "slide.tmpl", gin.H{
 			"Name":        directory.files[index].name,
 			"isVideo":     isVideo,
@@ -455,6 +481,8 @@ func main() {
 			"DirectoryId": directory.id,
 			"FileId":      id,
 			"Path":        path,
+			"GridStart":   gridStart,
+			"GridEnd":     gridEnd,
 		})
 	})
 
