@@ -175,12 +175,16 @@
         let startY = 0;
         let isDragging = false;
         let currentUrl = window.location.href;
+        let slideshowTimer = null;
+        let slideshowInterval = {{.SlideshowInterval}}; 
 
         // Touch/swipe navigation
         document.addEventListener('touchstart', function(e) {
             startX = e.touches[0].clientX;
             startY = e.touches[0].clientY;
             isDragging = true;
+            // Reset slideshow timer on user interaction
+            resetSlideshowTimer();
         });
 
         document.addEventListener('touchmove', function(e) {
@@ -218,6 +222,9 @@
 
         // Keyboard navigation
         document.addEventListener('keydown', function(e) {
+            // Reset slideshow timer on user interaction
+            resetSlideshowTimer();
+            
             switch(e.key) {
                 case 'ArrowLeft':
                     e.preventDefault();
@@ -243,6 +250,9 @@
         // Mouse wheel navigation
         document.addEventListener('wheel', function(e) {
             e.preventDefault();
+            // Reset slideshow timer on user interaction
+            resetSlideshowTimer();
+            
             if (e.deltaX > 0 || e.deltaY > 0) {
                 // Scroll down/right - go to next
                 const nextButton = document.querySelector('.nav-button.next');
@@ -260,19 +270,55 @@
 
         function navigateTo(url) {
             if (url && url !== currentUrl) {
+                // Clear the slideshow timer when manually navigating
+                clearSlideshowTimer();
                 window.location.href = url;
             }
         }
 
         function closeFullscreen() {
+            // Clear the slideshow timer when closing
+            clearSlideshowTimer();
             // Go back to the slide view
             const slideUrl = currentUrl.replace('/fullscreen/', '/slides/');
             window.location.href = slideUrl;
         }
 
+        function startSlideshow() {
+            // Only start slideshow if there's a next item available
+            const nextButton = document.querySelector('.nav-button.next');
+            if (nextButton && !nextButton.disabled) {
+                slideshowTimer = setTimeout(() => {
+                    navigateTo('{{.NextUrl}}');
+                }, slideshowInterval);
+            }
+        }
+
+        function clearSlideshowTimer() {
+            if (slideshowTimer) {
+                clearTimeout(slideshowTimer);
+                slideshowTimer = null;
+            }
+        }
+
+        function resetSlideshowTimer() {
+            clearSlideshowTimer();
+            startSlideshow();
+        }
+
         // Prevent context menu on image
         document.addEventListener('contextmenu', function(e) {
             e.preventDefault();
+        });
+
+        // Start the slideshow when the page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            startSlideshow();
+        });
+
+        // Also handle mouse movement to reset timer (optional - for more responsive UX)
+        document.addEventListener('mousemove', function(e) {
+            resetSlideshowTimer();
         });
     </script>
 </body>
