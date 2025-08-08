@@ -21,7 +21,8 @@ const (
 )
 
 const (
-	PageSize = 10
+	PageSize          = 10
+	SlideshowInterval = 5000 // 5 seconds in milliseconds
 )
 
 type File struct {
@@ -284,24 +285,24 @@ func fileDataInner(cx *Context, directory *Directory, path string, limit int) []
 func fileDataInRange(cx *Context, directory *Directory, path string, start int, end int) []FileData {
 	data := make([]FileData, 0)
 	mediaFiles := make([]File, 0)
-	
+
 	// First collect all media files
 	for _, file := range directory.files {
 		if file.kind != Other {
 			mediaFiles = append(mediaFiles, file)
 		}
 	}
-	
+
 	totalFiles := len(mediaFiles)
 	if totalFiles == 0 {
 		return data
 	}
-	
+
 	// Handle wrap-around by normalizing indices (including negative ones)
 	for i := start; i < end; i++ {
 		index := ((i % totalFiles) + totalFiles) % totalFiles
 		file := mediaFiles[index]
-		
+
 		data = append(data, FileData{
 			Name:         file.name,
 			Url:          slideUrl(path, file),
@@ -310,7 +311,7 @@ func fileDataInRange(cx *Context, directory *Directory, path string, start int, 
 			IsVideo:      file.kind == Video,
 		})
 	}
-	
+
 	return data
 }
 
@@ -417,21 +418,21 @@ func main() {
 			handleInvalidFile(c, err.Error())
 			return
 		}
-		
+
 		startStr := c.DefaultQuery("start", "0")
 		start, err := strconv.Atoi(startStr)
 		if err != nil {
 			handleInvalidFile(c, err.Error())
 			return
 		}
-		
+
 		endStr := c.DefaultQuery("end", "10")
 		end, err := strconv.Atoi(endStr)
 		if err != nil {
 			handleInvalidFile(c, err.Error())
 			return
 		}
-		
+
 		path := c.Param("path")
 		returnImageGrid(&cx, c, directoryId, start, end, path)
 	})
@@ -460,18 +461,18 @@ func main() {
 		prev := prevUrl(directory.files, index, path)
 		next := nextUrl(directory.files, index, path)
 		resourceUrl := fileResourceUrl(directory.files[index])
-		
+
 		// Calculate centered grid position for current file
 		currentPosition := findMediaFilePosition(directory, id)
 		totalFiles := countMediaFiles(directory)
 		gridStart := currentPosition - PageSize/2
 		gridEnd := currentPosition + PageSize/2
-		
+
 		// Handle negative wrap-around
 		if gridStart < 0 && totalFiles > 0 {
 			gridStart = totalFiles + gridStart
 		}
-		
+
 		c.HTML(http.StatusOK, "slide.tmpl", gin.H{
 			"Name":        directory.files[index].name,
 			"isVideo":     isVideo,
@@ -529,15 +530,16 @@ func main() {
 		}
 
 		c.HTML(http.StatusOK, "fullscreen.tmpl", gin.H{
-			"Name":         directory.files[index].name,
-			"IsVideo":      isVideo,
-			"ResourceUrl":  resourceUrl,
-			"PrevUrl":      prev,
-			"NextUrl":      next,
-			"CurrentIndex": currentIndex,
-			"TotalCount":   totalCount,
-			"IsFirst":      index == 0,
-			"IsLast":       index == len(directory.files)-1,
+			"Name":              directory.files[index].name,
+			"IsVideo":           isVideo,
+			"ResourceUrl":       resourceUrl,
+			"PrevUrl":           prev,
+			"NextUrl":           next,
+			"CurrentIndex":      currentIndex,
+			"TotalCount":        totalCount,
+			"IsFirst":           index == 0,
+			"IsLast":            index == len(directory.files)-1,
+			"SlideshowInterval": SlideshowInterval,
 		})
 	})
 
@@ -643,7 +645,7 @@ func returnImageGrid(cx *Context, c *gin.Context, directoryId int, start int, en
 	nextStart := end
 	nextEnd := end + PageSize
 	totalFiles := countMediaFiles(directory)
-	
+
 	// Always show more button since we have wrap-around
 	// Only hide if there are no files at all
 	hasMore := totalFiles > 0
