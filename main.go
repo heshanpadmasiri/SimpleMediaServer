@@ -647,12 +647,16 @@ func prevFullscreenUrl(files []File, i int, path string, sortParam string) strin
 func returnDirectoryPage(c *gin.Context, cx *Context, directory *Directory, path string) {
 	sortParam := strings.ToLower(c.DefaultQuery("sort", "name"))
 	Directories := childDirectoryData(directory, path, sortParam)
+	hasDirectories := len(Directories) > 0
+	hasFiles := countMediaFiles(directory) > 0
 	c.HTML(http.StatusOK, "directoryData.tmpl", gin.H{
-		"name":        directory.name,
-		"Directories": Directories,
-		"DirectoryId": directory.id,
-		"Path":        path,
-		"Sort":        sortParam,
+		"name":           directory.name,
+		"Directories":    Directories,
+		"DirectoryId":    directory.id,
+		"Path":           path,
+		"Sort":           sortParam,
+		"HasDirectories": hasDirectories,
+		"HasFiles":       hasFiles,
 	})
 }
 

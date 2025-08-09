@@ -29,17 +29,22 @@
         </script>
     </div>
 
+    {{if .HasDirectories}}
     <h2>Directories</h2>
     <ul>
         {{range .Directories}}
             <li><a href="{{.Url}}">{{.Name}}</a></li>
         {{end}}
     </ul>
+    {{end}}
+
+    {{if .HasFiles}}
     <h2>Files</h2>
     <div class="image-grid" id="image-grid-container"
          hx-get="/image-grid/{{.DirectoryId}}/{{.Path}}?start=0&end=10&sort={{.Sort}}"
          hx-trigger="load"
          hx-swap="innerHTML">
     </div>
+    {{end}}
 </body>
 </html>
