@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -31,6 +33,7 @@ type File struct {
 	id      int
 	kind    FileKind
 	dirPath []int
+	modTime time.Time
 }
 
 type Directory struct {
@@ -38,6 +41,7 @@ type Directory struct {
 	name           string
 	files          []File
 	childDirectory []Directory
+	modTime        time.Time
 }
 
 type Context struct {
@@ -130,7 +134,7 @@ func addFileToContext(cx *Context, path string, dirPath []int) (File, error) {
 
 	name := fileInfo.Name()
 	id := len(cx.flatFiles)
-	file := File{name: name, id: id, kind: fileKind(path), dirPath: dirPath}
+	file := File{name: name, id: id, kind: fileKind(path), dirPath: dirPath, modTime: fileInfo.ModTime()}
 	cx.flatFiles = append(cx.flatFiles, file)
 	return file, nil
 }
@@ -157,7 +161,12 @@ func addDirRootToContext(cx *Context, path string, parentPath []int) (Directory,
 	log.Printf("addDirRootToContext: path=%s currentPath=%v", path, currentPath)
 
 	name := filepath.Base(path)
-	directory := Directory{id: dirId, name: name, files: []File{}, childDirectory: []Directory{}}
+	// Capture directory metadata
+	dirInfo, err := os.Stat(path)
+	if err != nil {
+		return Directory{}, err
+	}
+	directory := Directory{id: dirId, name: name, files: []File{}, childDirectory: []Directory{}, modTime: dirInfo.ModTime()}
 	cx.directories = append(cx.directories, directory)
 
 	childDirectory := make([]Directory, 0)
@@ -219,32 +228,65 @@ func directoryUrl(path, name string) string {
 	return prefix + basePath + "/" + name
 }
 
-func childDirectoryData(directory *Directory, path string) []DirectoryData {
-	data := make([]DirectoryData, 0)
-	for _, dir := range directory.childDirectory {
-		data = append(data, DirectoryData{Name: dir.name, Url: directoryUrl(path, dir.name)})
+func directoryUrlWithSort(path, name, sortParam string) string {
+	url := directoryUrl(path, name)
+	if sortParam == "" {
+		return url
+	}
+	return url + "?sort=" + sortParam
+}
+
+func childDirectoryData(directory *Directory, path string, sortParam string) []DirectoryData {
+	// copy to avoid mutating original slice order
+	dirs := make([]Directory, len(directory.childDirectory))
+	copy(dirs, directory.childDirectory)
+	// sort according to sortParam
+	switch strings.ToLower(sortParam) {
+	case "latest":
+		sort.SliceStable(dirs, func(i, j int) bool { return dirs[i].modTime.After(dirs[j].modTime) })
+	case "oldest":
+		sort.SliceStable(dirs, func(i, j int) bool { return dirs[i].modTime.Before(dirs[j].modTime) })
+	default: // name
+		sort.SliceStable(dirs, func(i, j int) bool { return strings.ToLower(dirs[i].name) < strings.ToLower(dirs[j].name) })
+	}
+
+	data := make([]DirectoryData, 0, len(dirs))
+	for _, dir := range dirs {
+		data = append(data, DirectoryData{Name: dir.name, Url: directoryUrlWithSort(path, dir.name, sortParam)})
 	}
 	return data
 }
 
-func slideUrl(path string, file File) string {
+func slideUrl(path string, file File, sortParam string) string {
 	prefix := "/slides/"
 	basePath := strings.Trim(path, "/")
 	id := strconv.Itoa(file.id)
+	var url string
 	if basePath == "" {
-		return prefix + id
+		url = prefix + id
+	} else {
+		url = prefix + id + "/" + basePath
 	}
-	return prefix + id + "/" + basePath
+	if sortParam != "" {
+		url = url + "?sort=" + sortParam
+	}
+	return url
 }
 
-func fullscreenUrl(path string, file File) string {
+func fullscreenUrl(path string, file File, sortParam string) string {
 	prefix := "/fullscreen/"
 	basePath := strings.Trim(path, "/")
 	id := strconv.Itoa(file.id)
+	var url string
 	if basePath == "" {
-		return prefix + id
+		url = prefix + id
+	} else {
+		url = prefix + id + "/" + basePath
 	}
-	return prefix + id + "/" + basePath
+	if sortParam != "" {
+		url = url + "?sort=" + sortParam
+	}
+	return url
 }
 
 func fileResourceUrl(file File) string {
@@ -280,66 +322,31 @@ func imageResourceUrlById(id int) string {
 	return "/img/" + strconv.Itoa(id)
 }
 
-func getFilesInRange(cx *Context, directory *Directory, path string, index int) []FileData {
-	files := directory.files
-	if len(files) <= 11 {
-		return getFilesInRangeInner(cx, path, files)
-	}
-	start, end := getIndexRange(index)
-	return getFilesInRangeInner(cx, path, files[start:end])
-}
 
-func getFilesInRangeInner(cx *Context, path string, files []File) []FileData {
-	data := make([]FileData, 0)
-	for _, file := range files {
-		if file.kind == Other {
-			continue
-		}
-		data = append(data, FileData{
-			Name:         file.name,
-			Url:          slideUrl(path, file),
-			ResourceUrl:  fileResourceUrl(file),
-			ThumbnailUrl: fileThumbnailUrl(cx, file),
-			IsVideo:      file.kind == Video,
-		})
-	}
-	return data
-}
 
-func fileDataInner(cx *Context, directory *Directory, path string, limit int) []FileData {
-	data := make([]FileData, 0)
-	for _, file := range directory.files {
-		if file.kind == Other {
-			continue
-		}
-		url := slideUrl(path, file)
-		if file.kind == Video {
-			url = fileResourceUrl(file)
-		}
-		data = append(data, FileData{
-			Name:         file.name,
-			Url:          url,
-			ResourceUrl:  fileResourceUrl(file),
-			ThumbnailUrl: fileThumbnailUrl(cx, file),
-			IsVideo:      file.kind == Video,
-		})
-		if len(data) == limit {
-			break
-		}
-	}
-	return data
-}
 
-func fileDataInRange(cx *Context, directory *Directory, path string, start int, end int) []FileData {
-	data := make([]FileData, 0)
+
+func getSortedMediaFiles(files []File, sortParam string) []File {
 	mediaFiles := make([]File, 0)
-
-	// First collect all media files
-	for _, file := range directory.files {
-		if file.kind != Other {
-			mediaFiles = append(mediaFiles, file)
+	for _, f := range files {
+		if f.kind != Other {
+			mediaFiles = append(mediaFiles, f)
 		}
 	}
+	switch strings.ToLower(sortParam) {
+	case "latest":
+		sort.SliceStable(mediaFiles, func(i, j int) bool { return mediaFiles[i].modTime.After(mediaFiles[j].modTime) })
+	case "oldest":
+		sort.SliceStable(mediaFiles, func(i, j int) bool { return mediaFiles[i].modTime.Before(mediaFiles[j].modTime) })
+	default: // name
+		sort.SliceStable(mediaFiles, func(i, j int) bool { return strings.ToLower(mediaFiles[i].name) < strings.ToLower(mediaFiles[j].name) })
+	}
+	return mediaFiles
+}
+
+func fileDataInRange(cx *Context, directory *Directory, path string, start int, end int, sortParam string) []FileData {
+	data := make([]FileData, 0)
+	mediaFiles := getSortedMediaFiles(directory.files, sortParam)
 
 	totalFiles := len(mediaFiles)
 	if totalFiles == 0 {
@@ -353,7 +360,7 @@ func fileDataInRange(cx *Context, directory *Directory, path string, start int, 
 
 		data = append(data, FileData{
 			Name:         file.name,
-			Url:          slideUrl(path, file),
+			Url:          slideUrl(path, file, sortParam),
 			ResourceUrl:  fileResourceUrl(file),
 			ThumbnailUrl: fileThumbnailUrl(cx, file),
 			IsVideo:      file.kind == Video,
@@ -373,19 +380,7 @@ func countMediaFiles(directory *Directory) int {
 	return count
 }
 
-func findMediaFilePosition(directory *Directory, fileId int) int {
-	position := 0
-	for _, file := range directory.files {
-		if file.kind == Other {
-			continue
-		}
-		if file.id == fileId {
-			return position
-		}
-		position++
-	}
-	return -1
-}
+
 
 func main() {
 	cx := Context{paths: make([]string, 0), directories: make([]Directory, 0), flatFiles: make([]File, 0)}
@@ -446,7 +441,7 @@ func main() {
 		}
 		returnDirectoryPage(c, &cx, directory, path)
 	})
-	// TODO: refactor image and vidoe handlers
+	// TODO: refactor image and video handlers
 	r.GET("/img/:id", func(c *gin.Context) {
 		idStr := c.Param("id")
 		id, err := strconv.Atoi(idStr)
@@ -488,11 +483,13 @@ func main() {
 		}
 
 		path := c.Param("path")
-		returnImageGrid(&cx, c, directoryId, start, end, path)
+		sortParam := strings.ToLower(c.DefaultQuery("sort", "name"))
+		returnImageGrid(&cx, c, directoryId, start, end, path, sortParam)
 	})
 
 	r.GET("/slides/:id/*path", func(c *gin.Context) {
 		path := c.Param("path")
+		sortParam := strings.ToLower(c.DefaultQuery("sort", "name"))
 		idStr := c.Param("id")
 		directory := getDirectoryByPath(&rootDir, path)
 		if directory == nil {
@@ -506,20 +503,20 @@ func main() {
 			handleInvalidFile(c, err.Error())
 			return
 		}
-		fmt.Println(cx.flatFiles[id])
-		index := index(directory.files, id)
+		sortedFiles := getSortedMediaFiles(directory.files, sortParam)
+		index := index(sortedFiles, id)
 		if index == -1 {
 			handleInvalidFile(c, "File not found")
 			return
 		}
-		isVideo := directory.files[index].kind == Video
-		prev := prevUrl(directory.files, index, path)
-		next := nextUrl(directory.files, index, path)
-		resourceUrl := fileResourceUrl(directory.files[index])
+		isVideo := sortedFiles[index].kind == Video
+		prev := prevUrl(sortedFiles, index, path, sortParam)
+		next := nextUrl(sortedFiles, index, path, sortParam)
+		resourceUrl := fileResourceUrl(sortedFiles[index])
 
-		// Calculate centered grid position for current file
-		currentPosition := findMediaFilePosition(directory, id)
-		totalFiles := countMediaFiles(directory)
+		// Calculate centered grid position for current file (in sorted order)
+		currentPosition := index
+		totalFiles := len(sortedFiles)
 		gridStart := currentPosition - PageSize/2
 		gridEnd := currentPosition + PageSize/2
 
@@ -528,9 +525,9 @@ func main() {
 			gridStart = totalFiles + gridStart
 		}
 
-		filePath := cx.buildFilePath(directory.files[index])
+		filePath := cx.buildFilePath(sortedFiles[index])
 		c.HTML(http.StatusOK, "slide.tmpl", gin.H{
-			"Name":        directory.files[index].name,
+			"Name":        sortedFiles[index].name,
 			"FilePath":    template.HTML(filePath),
 			"isVideo":     isVideo,
 			"ResourceUrl": resourceUrl,
@@ -541,11 +538,13 @@ func main() {
 			"Path":        path,
 			"GridStart":   gridStart,
 			"GridEnd":     gridEnd,
+			"Sort":        sortParam,
 		})
 	})
 
 	r.GET("/fullscreen/:id/*path", func(c *gin.Context) {
 		path := c.Param("path")
+		sortParam := strings.ToLower(c.DefaultQuery("sort", "name"))
 		idStr := c.Param("id")
 		directory := getDirectoryByPath(&rootDir, path)
 		if directory == nil {
@@ -559,35 +558,26 @@ func main() {
 			handleInvalidFile(c, err.Error())
 			return
 		}
-		index := index(directory.files, id)
+		sortedFiles := getSortedMediaFiles(directory.files, sortParam)
+		index := index(sortedFiles, id)
 		if index == -1 {
 			handleInvalidFile(c, "File not found")
 			return
 		}
 
-		isVideo := directory.files[index].kind == Video
-		prev := prevFullscreenUrl(directory.files, index, path)
-		next := nextFullscreenUrl(directory.files, index, path)
-		resourceUrl := fileResourceUrl(directory.files[index])
+		isVideo := sortedFiles[index].kind == Video
+		prev := prevFullscreenUrl(sortedFiles, index, path, sortParam)
+		next := nextFullscreenUrl(sortedFiles, index, path, sortParam)
+		resourceUrl := fileResourceUrl(sortedFiles[index])
 
-		// Count total images/videos for counter
-		totalCount := 0
-		for _, file := range directory.files {
-			if file.kind == Image || file.kind == Video {
-				totalCount++
-			}
-		}
+		// Count total images/videos for counter based on sorted files
+		totalCount := len(sortedFiles)
 
-		// Count current position (only images/videos)
-		currentIndex := 1
-		for i := 0; i < index; i++ {
-			if directory.files[i].kind == Image || directory.files[i].kind == Video {
-				currentIndex++
-			}
-		}
+		// Current position (1-based)
+		currentIndex := index + 1
 
 		c.HTML(http.StatusOK, "fullscreen.tmpl", gin.H{
-			"Name":              directory.files[index].name,
+			"Name":              sortedFiles[index].name,
 			"IsVideo":           isVideo,
 			"ResourceUrl":       resourceUrl,
 			"PrevUrl":           prev,
@@ -595,8 +585,9 @@ func main() {
 			"CurrentIndex":      currentIndex,
 			"TotalCount":        totalCount,
 			"IsFirst":           index == 0,
-			"IsLast":            index == len(directory.files)-1,
+			"IsLast":            index == len(sortedFiles)-1,
 			"SlideshowInterval": SlideshowInterval,
+			"Sort":              sortParam,
 		})
 	})
 
@@ -621,46 +612,47 @@ func index(files []File, id int) int {
 	return -1
 }
 
-func nextUrl(files []File, i int, path string) string {
+func nextUrl(files []File, i int, path string, sortParam string) string {
 	if i+1 < len(files) {
-		return slideUrl(path, files[i+1])
+		return slideUrl(path, files[i+1], sortParam)
 	} else {
-		log.Println(files[0])
-		return slideUrl(path, files[0])
+		return slideUrl(path, files[0], sortParam)
 	}
 }
 
-func prevUrl(files []File, i int, path string) string {
+func prevUrl(files []File, i int, path string, sortParam string) string {
 	if i-1 >= 0 {
-		return slideUrl(path, files[i-1])
+		return slideUrl(path, files[i-1], sortParam)
 	} else {
-		return slideUrl(path, files[len(files)-1])
+		return slideUrl(path, files[len(files)-1], sortParam)
 	}
 }
 
-func nextFullscreenUrl(files []File, i int, path string) string {
+func nextFullscreenUrl(files []File, i int, path string, sortParam string) string {
 	if i+1 < len(files) {
-		return fullscreenUrl(path, files[i+1])
+		return fullscreenUrl(path, files[i+1], sortParam)
 	} else {
-		return fullscreenUrl(path, files[0])
+		return fullscreenUrl(path, files[0], sortParam)
 	}
 }
 
-func prevFullscreenUrl(files []File, i int, path string) string {
+func prevFullscreenUrl(files []File, i int, path string, sortParam string) string {
 	if i-1 >= 0 {
-		return fullscreenUrl(path, files[i-1])
+		return fullscreenUrl(path, files[i-1], sortParam)
 	} else {
-		return fullscreenUrl(path, files[len(files)-1])
+		return fullscreenUrl(path, files[len(files)-1], sortParam)
 	}
 }
 
 func returnDirectoryPage(c *gin.Context, cx *Context, directory *Directory, path string) {
-	Directories := childDirectoryData(directory, path)
+	sortParam := strings.ToLower(c.DefaultQuery("sort", "name"))
+	Directories := childDirectoryData(directory, path, sortParam)
 	c.HTML(http.StatusOK, "directoryData.tmpl", gin.H{
 		"name":        directory.name,
 		"Directories": Directories,
 		"DirectoryId": directory.id,
 		"Path":        path,
+		"Sort":        sortParam,
 	})
 }
 
@@ -691,13 +683,13 @@ func returnFileById(cx *Context, c *gin.Context, id int) {
 	returnFileByPath(c, path)
 }
 
-func returnImageGrid(cx *Context, c *gin.Context, directoryId int, start int, end int, path string) {
+func returnImageGrid(cx *Context, c *gin.Context, directoryId int, start int, end int, path string, sortParam string) {
 	directory, err := cx.getDirectoryById(directoryId)
 	if err != nil {
 		handleInvalidFile(c, err.Error())
 		return
 	}
-	files := fileDataInRange(cx, directory, path, start, end)
+	files := fileDataInRange(cx, directory, path, start, end, sortParam)
 	nextStart := end
 	nextEnd := end + PageSize
 	totalFiles := countMediaFiles(directory)
@@ -713,6 +705,7 @@ func returnImageGrid(cx *Context, c *gin.Context, directoryId int, start int, en
 		"NextEnd":     nextEnd,
 		"DirectoryId": directoryId,
 		"Path":        path,
+		"Sort":        sortParam,
 	})
 }
 

@@ -11,7 +11,7 @@
     </a>
 {{end}}
 {{if .HasMore}}
-    <div hx-get="/image-grid/{{.DirectoryId}}/{{.Path}}?start={{.NextStart}}&end={{.NextEnd}}"
+    <div hx-get="/image-grid/{{.DirectoryId}}/{{.Path}}?start={{.NextStart}}&end={{.NextEnd}}&sort={{.Sort}}"
          hx-trigger="intersect once"
          hx-swap="outerHTML">
         Loading more...

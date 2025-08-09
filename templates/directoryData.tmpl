@@ -9,8 +9,26 @@
 </head>
 <body>
     <a href="/" class="home-button" title="Go to Home">🏠</a>
-    
+
     <h1>{{.name}}</h1>
+
+    <div>
+        <label for="sort-select">Sort by:</label>
+        <select id="sort-select">
+            <option value="name" {{if eq .Sort "name"}}selected{{end}}>Name</option>
+            <option value="latest" {{if eq .Sort "latest"}}selected{{end}}>Latest</option>
+            <option value="oldest" {{if eq .Sort "oldest"}}selected{{end}}>Oldest</option>
+        </select>
+        <script>
+            document.getElementById('sort-select').addEventListener('change', function() {
+                const selected = this.value;
+                const base = '/files/{{.Path}}';
+                const url = selected ? base + '?sort=' + encodeURIComponent(selected) : base;
+                htmx.ajax('GET', url, { target: 'body', swap: 'outerHTML' });
+            });
+        </script>
+    </div>
+
     <h2>Directories</h2>
     <ul>
         {{range .Directories}}
@@ -18,8 +36,8 @@
         {{end}}
     </ul>
     <h2>Files</h2>
-    <div class="image-grid" id="image-grid-container" 
-         hx-get="/image-grid/{{.DirectoryId}}/{{.Path}}?start=0&end=10"
+    <div class="image-grid" id="image-grid-container"
+         hx-get="/image-grid/{{.DirectoryId}}/{{.Path}}?start=0&end=10&sort={{.Sort}}"
          hx-trigger="load"
          hx-swap="innerHTML">
     </div>
