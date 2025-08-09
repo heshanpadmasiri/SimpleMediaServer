@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"os"
@@ -26,9 +27,10 @@ const (
 )
 
 type File struct {
-	name string
-	id   int
-	kind FileKind
+	name    string
+	id      int
+	kind    FileKind
+	dirPath []int
 }
 
 type Directory struct {
@@ -41,6 +43,7 @@ type Directory struct {
 type Context struct {
 	paths       []string
 	directories []Directory
+	flatFiles   []File
 }
 
 // given file index get the path from context
@@ -60,6 +63,39 @@ func (cx *Context) getDirectoryById(id int) (*Directory, error) {
 		return nil, fmt.Errorf("invalid directory id %d", id)
 	}
 	return &cx.directories[id], nil
+}
+
+// buildFilePath constructs the full path to a file using its dirPath array with clickable links
+func (cx *Context) buildFilePath(file File) string {
+	if len(file.dirPath) == 0 {
+		return file.name
+	}
+
+	pathParts := make([]string, 0, len(file.dirPath)+1)
+	currentPath := ""
+
+	// Build path parts with links for directories
+	for _, dirId := range file.dirPath {
+		if dirId == 0 {
+			// Virtual root di
+			continue
+		}
+		if dirId >= 0 && dirId < len(cx.directories) {
+			dirName := cx.directories[dirId].name
+			if currentPath == "" {
+				currentPath = dirName
+			} else {
+				currentPath = currentPath + "/" + dirName
+			}
+			link := fmt.Sprintf(`<a href="/files/%s">%s</a>`, currentPath, dirName)
+			pathParts = append(pathParts, link)
+		}
+	}
+
+	// Add the file name (not clickable)
+	pathParts = append(pathParts, file.name)
+
+	return strings.Join(pathParts, " / ")
 }
 
 func splitPath(path string) (string, string) {
@@ -84,7 +120,8 @@ func getDirectoryByPath(root *Directory, path string) *Directory {
 	return nil
 }
 
-func addFileToContext(cx *Context, path string) (File, error) {
+func addFileToContext(cx *Context, path string, dirPath []int) (File, error) {
+	fmt.Println(path, dirPath)
 	cx.paths = append(cx.paths, path)
 	fileInfo, err := os.Stat(path)
 	if err != nil {
@@ -92,7 +129,10 @@ func addFileToContext(cx *Context, path string) (File, error) {
 	}
 
 	name := fileInfo.Name()
-	return File{name: name, id: len(cx.paths) - 1, kind: fileKind(path)}, nil
+	id := len(cx.flatFiles)
+	file := File{name: name, id: id, kind: fileKind(path), dirPath: dirPath}
+	cx.flatFiles = append(cx.flatFiles, file)
+	return file, nil
 }
 
 func fileKind(path string) FileKind {
@@ -111,7 +151,15 @@ func filteredFile(path string) bool {
 	return filepath.Base(path)[0] == '.'
 }
 
-func addDirRootToContext(cx *Context, path string) (Directory, error) {
+func addDirRootToContext(cx *Context, path string, parentPath []int) (Directory, error) {
+	dirId := len(cx.directories)
+	currentPath := append(parentPath, dirId)
+	fmt.Println(path, currentPath)
+
+	name := filepath.Base(path)
+	directory := Directory{id: dirId, name: name, files: []File{}, childDirectory: []Directory{}}
+	cx.directories = append(cx.directories, directory)
+
 	childDirectory := make([]Directory, 0)
 	files := make([]File, 0)
 	err := filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
@@ -123,13 +171,13 @@ func addDirRootToContext(cx *Context, path string) (Directory, error) {
 		}
 
 		if info.IsDir() {
-			dir, err := addDirRootToContext(cx, filePath)
+			dir, err := addDirRootToContext(cx, filePath, currentPath)
 			if err != nil {
 				return err
 			}
 			childDirectory = append(childDirectory, dir)
 		} else {
-			file, err := addFileToContext(cx, filePath)
+			file, err := addFileToContext(cx, filePath, currentPath)
 			if err != nil {
 				return err
 			}
@@ -142,11 +190,10 @@ func addDirRootToContext(cx *Context, path string) (Directory, error) {
 	if err != nil {
 		return Directory{}, err
 	}
-	name := filepath.Base(path)
-	dirId := len(cx.directories)
-	directory := Directory{id: dirId, childDirectory: childDirectory, files: files, name: name}
-	cx.directories = append(cx.directories, directory)
-	return directory, nil
+	cx.directories[dirId].childDirectory = childDirectory
+	cx.directories[dirId].files = files
+
+	return cx.directories[dirId], nil
 }
 
 type DirectoryData struct {
@@ -340,7 +387,7 @@ func findMediaFilePosition(directory *Directory, fileId int) int {
 }
 
 func main() {
-	cx := Context{paths: make([]string, 0), directories: make([]Directory, 0)}
+	cx := Context{paths: make([]string, 0), directories: make([]Directory, 0), flatFiles: make([]File, 0)}
 
 	// Load configuration
 	config, err := loadConfig()
@@ -352,7 +399,7 @@ func main() {
 
 	if len(config.MediaSources) == 1 {
 		// Single media source - use it directly
-		dir, err := addDirRootToContext(&cx, config.MediaSources[0])
+		dir, err := addDirRootToContext(&cx, config.MediaSources[0], []int{})
 		if err != nil {
 			panic(err)
 		}
@@ -360,8 +407,15 @@ func main() {
 	} else {
 		// Multiple media sources - create virtual directory
 		directories := make([]Directory, 0, len(config.MediaSources))
+		virtualDir := Directory{
+			id:             0,
+			name:           "$Virtual",
+			files:          []File{},
+			childDirectory: directories,
+		}
+		cx.directories = append(cx.directories, virtualDir)
 		for _, path := range config.MediaSources {
-			dir, err := addDirRootToContext(&cx, path)
+			dir, err := addDirRootToContext(&cx, path, []int{0})
 			if err != nil {
 				log.Printf("Warning: failed to add directory %s: %v", path, err)
 				continue
@@ -372,7 +426,6 @@ func main() {
 		if len(directories) == 0 {
 			log.Fatal("No valid media sources found")
 		}
-
 		rootDir = combineDirectories(&cx, directories)
 	}
 	r := gin.Default()
@@ -452,6 +505,7 @@ func main() {
 			handleInvalidFile(c, err.Error())
 			return
 		}
+		fmt.Println(cx.flatFiles[id])
 		index := index(directory.files, id)
 		if index == -1 {
 			handleInvalidFile(c, "File not found")
@@ -473,8 +527,10 @@ func main() {
 			gridStart = totalFiles + gridStart
 		}
 
+		filePath := cx.buildFilePath(directory.files[index])
 		c.HTML(http.StatusOK, "slide.tmpl", gin.H{
 			"Name":        directory.files[index].name,
+			"FilePath":    template.HTML(filePath),
 			"isVideo":     isVideo,
 			"ResourceUrl": resourceUrl,
 			"PrevUrl":     prev,
@@ -543,7 +599,6 @@ func main() {
 		})
 	})
 
-	fmt.Println(rootDir)
 	r.Run(fmt.Sprintf(":%d", config.Port))
 }
 

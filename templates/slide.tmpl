@@ -10,6 +10,11 @@
 <body>
     <a href="/" class="home-button" title="Go to Home">🏠</a>
     
+    <div class="file-path">
+        <span class="path-label">Path:</span>
+        {{.FilePath}}
+    </div>
+    
     <div class="media-viewer">
         {{if .isVideo}}
             <video controls>
