@@ -121,7 +121,7 @@ func getDirectoryByPath(root *Directory, path string) *Directory {
 }
 
 func addFileToContext(cx *Context, path string, dirPath []int) (File, error) {
-	fmt.Println(path, dirPath)
+	log.Printf("addFileToContext: path=%s dirPath=%v", path, dirPath)
 	cx.paths = append(cx.paths, path)
 	fileInfo, err := os.Stat(path)
 	if err != nil {
@@ -154,7 +154,7 @@ func filteredFile(path string) bool {
 func addDirRootToContext(cx *Context, path string, parentPath []int) (Directory, error) {
 	dirId := len(cx.directories)
 	currentPath := append(parentPath, dirId)
-	fmt.Println(path, currentPath)
+	log.Printf("addDirRootToContext: path=%s currentPath=%v", path, currentPath)
 
 	name := filepath.Base(path)
 	directory := Directory{id: dirId, name: name, files: []File{}, childDirectory: []Directory{}}
@@ -162,36 +162,37 @@ func addDirRootToContext(cx *Context, path string, parentPath []int) (Directory,
 
 	childDirectory := make([]Directory, 0)
 	files := make([]File, 0)
-	err := filepath.Walk(path, func(filePath string, info os.FileInfo, err error) error {
-		if filePath == path || filteredFile(filePath) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
 
-		if info.IsDir() {
-			dir, err := addDirRootToContext(cx, filePath, currentPath)
-			if err != nil {
-				return err
-			}
-			childDirectory = append(childDirectory, dir)
-		} else {
-			file, err := addFileToContext(cx, filePath, currentPath)
-			if err != nil {
-				return err
-			}
-			files = append(files, file)
-		}
-
-		return nil
-	})
-
+	entries, err := os.ReadDir(path)
 	if err != nil {
 		return Directory{}, err
 	}
+
+	for _, entry := range entries {
+		childPath := filepath.Join(path, entry.Name())
+		if filteredFile(childPath) {
+			continue
+		}
+		if entry.IsDir() {
+			// Recurse into child directories, but only add their metadata here
+			dir, err := addDirRootToContext(cx, childPath, currentPath)
+			if err != nil {
+				return Directory{}, err
+			}
+			childDirectory = append(childDirectory, dir)
+		} else {
+			file, err := addFileToContext(cx, childPath, currentPath)
+			if err != nil {
+				return Directory{}, err
+			}
+			files = append(files, file)
+		}
+	}
+
 	cx.directories[dirId].childDirectory = childDirectory
 	cx.directories[dirId].files = files
+
+	log.Printf("scanned directory: name=%s id=%d files=%d children=%d", name, dirId, len(files), len(childDirectory))
 
 	return cx.directories[dirId], nil
 }
