@@ -9,7 +9,12 @@
 </head>
 <body>
     <a href="/" class="home-button" title="Go to Home">🏠</a>
-    
+
+    <div class="file-path">
+        <span class="path-label">Path:</span>
+        {{.FilePath}}
+    </div>
+
     <div class="media-viewer">
         {{if .isVideo}}
             <video controls>
@@ -17,14 +22,14 @@
                 Your browser does not support the video tag.
             </video>
         {{else}}
-            <a href="/fullscreen/{{.FileId}}/{{.Path}}">
+            <a href="/fullscreen/{{.FileId}}/{{.Path}}?sort={{.Sort}}">
                 <img src="{{.ResourceUrl}}" alt="{{.Name}}">
             </a>
         {{end}}
     </div>
 
-    <div class="image-grid" id="image-grid-container" 
-         hx-get="/image-grid/{{.DirectoryId}}/{{.Path}}?start={{.GridStart}}&end={{.GridEnd}}"
+    <div class="image-grid" id="image-grid-container"
+         hx-get="/image-grid/{{.DirectoryId}}/{{.Path}}?start={{.GridStart}}&end={{.GridEnd}}&sort={{.Sort}}"
          hx-trigger="load"
          hx-swap="innerHTML">
     </div>

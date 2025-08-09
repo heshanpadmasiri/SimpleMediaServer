@@ -128,6 +128,43 @@ li:hover {
     text-decoration: none;
 }
 
+/* File path display */
+.file-path {
+    display: flex;
+    align-items: center;
+    margin: 20px 0;
+    padding: 15px 20px;
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+}
+
+.path-label {
+    font-weight: bold;
+    color: #2c3e50;
+    margin-right: 10px;
+    min-width: 50px;
+}
+
+.path-value {
+    color: #34495e;
+    word-break: break-all;
+    flex: 1;
+}
+
+.path-value a {
+    color: #3498db;
+    text-decoration: none;
+    transition: color 0.3s ease;
+}
+
+.path-value a:hover {
+    color: #2980b9;
+    text-decoration: underline;
+}
+
 /* Media viewer */
 .media-viewer {
     display: flex;
