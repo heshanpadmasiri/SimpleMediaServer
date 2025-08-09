@@ -28,6 +28,16 @@
         {{end}}
     </div>
 
+    <div style="margin: 12px 0; display: flex; gap: 8px; align-items: center;">
+        <form action="/delete" method="POST">
+            <input type="hidden" name="fileId" value="{{.FileId}}">
+            <input type="hidden" name="directoryId" value="{{.DirectoryId}}">
+            <input type="hidden" name="path" value="{{.Path}}">
+            <input type="hidden" name="sort" value="{{.Sort}}">
+            <button type="submit" class="button danger">Delete</button>
+        </form>
+    </div>
+
     <div class="image-grid" id="image-grid-container"
          hx-get="/image-grid/{{.DirectoryId}}/{{.Path}}?start={{.GridStart}}&end={{.GridEnd}}&sort={{.Sort}}"
          hx-trigger="load"

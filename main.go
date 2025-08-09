@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -29,11 +30,12 @@ const (
 )
 
 type File struct {
-	name    string
-	id      int
-	kind    FileKind
-	dirPath []int
-	modTime time.Time
+	name     string
+	id       int
+	kind     FileKind
+	dirPath  []int
+	modTime  time.Time
+	filePath string
 }
 
 type Directory struct {
@@ -134,7 +136,7 @@ func addFileToContext(cx *Context, path string, dirPath []int) (File, error) {
 
 	name := fileInfo.Name()
 	id := len(cx.flatFiles)
-	file := File{name: name, id: id, kind: fileKind(path), dirPath: dirPath, modTime: fileInfo.ModTime()}
+	file := File{name: name, id: id, kind: fileKind(path), dirPath: dirPath, modTime: fileInfo.ModTime(), filePath: path}
 	cx.flatFiles = append(cx.flatFiles, file)
 	return file, nil
 }
@@ -591,6 +593,81 @@ func main() {
 		})
 	})
 
+	// Delete endpoint: move file to system trash, update in-memory directory listing, redirect
+	r.POST("/delete", func(c *gin.Context) {
+		fileIdStr := c.PostForm("fileId")
+		dirIdStr := c.PostForm("directoryId")
+		pathParam := c.PostForm("path")
+		sortParam := strings.ToLower(c.DefaultPostForm("sort", "name"))
+
+		fileId, err := strconv.Atoi(fileIdStr)
+		if err != nil {
+			handleInvalidFile(c, err.Error())
+			return
+		}
+		dirId, err := strconv.Atoi(dirIdStr)
+		if err != nil {
+			handleInvalidFile(c, err.Error())
+			return
+		}
+
+		dir, err := cx.getDirectoryById(dirId)
+		if err != nil {
+			handleInvalidFile(c, err.Error())
+			return
+		}
+
+		// Determine next slide target before deletion
+		sortedFiles := getSortedMediaFiles(dir.files, sortParam)
+		currIdx := index(sortedFiles, fileId)
+		if currIdx == -1 {
+			handleInvalidFile(c, "File not found in directory")
+			return
+		}
+
+		nextTargetUrl := ""
+		if len(sortedFiles) > 1 {
+			nextTargetUrl = nextUrl(sortedFiles, currIdx, pathParam, sortParam)
+		}
+
+		// Trash the file
+		pathToFile, err := cx.getPath(fileId)
+		if err != nil {
+			handleInvalidFile(c, err.Error())
+			return
+		}
+
+		if err := moveToTrash(pathToFile); err != nil {
+			// If file already doesn't exist, proceed as if deleted
+			if _, statErr := os.Stat(pathToFile); statErr == nil {
+				handleError(c, http.StatusInternalServerError, fmt.Sprintf("failed to move to trash: %v", err))
+				return
+			}
+		}
+
+		// Update in-memory directory listing: remove the file with matching id
+		filtered := make([]File, 0, len(dir.files))
+		for _, f := range dir.files {
+			if f.id != fileId {
+				filtered = append(filtered, f)
+			}
+		}
+		dir.files = filtered
+
+		// If there are remaining files, go to next slide; otherwise back to directory view
+		if len(filtered) > 0 && nextTargetUrl != "" {
+			c.Redirect(http.StatusSeeOther, nextTargetUrl)
+			return
+		}
+
+		// Redirect back to directory page
+		redir := "/files" + pathParam
+		if sortParam != "" {
+			redir = redir + "?sort=" + sortParam
+		}
+		c.Redirect(http.StatusSeeOther, redir)
+	})
+
 	r.Run(fmt.Sprintf(":%d", config.Port))
 }
 
@@ -741,4 +818,34 @@ func combineDirectories(cx *Context, directories []Directory) Directory {
 	cx.directories = append(cx.directories, virtualDir)
 
 	return virtualDir
+}
+
+// moveToTrash attempts to move the file to the system's recycle bin.
+// On Linux, it tries common mechanisms in order.
+func moveToTrash(path string) error {
+	// Prefer gio (GLib) trash which adheres to the FreeDesktop Trash spec
+	if err := tryExec("gio", "trash", path); err == nil {
+		return nil
+	}
+	// Older gvfs-trash
+	if err := tryExec("gvfs-trash", path); err == nil {
+		return nil
+	}
+	// trash-put from trash-cli
+	if err := tryExec("trash-put", path); err == nil {
+		return nil
+	}
+	// KDE kioclient5
+	if err := tryExec("kioclient5", "move", path, "trash:/"); err == nil {
+		return nil
+	}
+	return fmt.Errorf("no trash utility found (tried gio, gvfs-trash, trash-put, kioclient5)")
+}
+
+func tryExec(name string, args ...string) error {
+	if _, err := exec.LookPath(name); err != nil {
+		return err
+	}
+	cmd := exec.Command(name, args...)
+	return cmd.Run()
 }
