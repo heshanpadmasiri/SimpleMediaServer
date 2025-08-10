@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"html/template"
 	"log"
@@ -49,14 +50,7 @@ type Directory struct {
 type Context struct {
 	directories []Directory
 	files       []File
-}
-
-// given file index get the path from context
-func (cx *Context) getPath(id int) (string, error) {
-	if id < 0 || id >= len(cx.files) {
-		return "", fmt.Errorf("invalid id %d", id)
-	}
-	return cx.files[id].filePath, nil
+	rootDir     *Directory
 }
 
 func (cx *Context) getDirectoryById(id int) (*Directory, error) {
@@ -490,6 +484,7 @@ func main() {
 		}
 		rootDir = combineDirectories(&cx, directories)
 	}
+	cx.rootDir = &rootDir
 	validateContext(&cx)
 	r := gin.Default()
 	r.LoadHTMLGlob("templates/*")
@@ -554,69 +549,24 @@ func main() {
 	})
 
 	r.GET("/slides/:id/*path", func(c *gin.Context) {
-		path := c.Param("path")
-		sortParam := strings.ToLower(c.DefaultQuery("sort", "name"))
-		idStr := c.Param("id")
-		directory := getDirectoryByPath(&rootDir, path)
-		if directory == nil {
-			c.HTML(http.StatusNotFound, "invalidPath.tmpl", gin.H{
-				"path": path,
-			})
-			return
-		}
-		id, err := strconv.Atoi(idStr)
+		req, err := parseSlideReq(c)
 		if err != nil {
-			handleInvalidFile(c, err.Error())
-			return
+			handleError(c, 400, err.Error())
 		}
-		sortedFiles := getSortedMediaFiles(&cx, directory.files, sortParam)
-		index := index(sortedFiles, id)
-		if index == -1 {
-			// Redirect to next numeric id within this directory; if none, wrap to smallest id
-			if nextFile, ok := findNextNonDeletedById(&cx, directory.files, id); ok {
-				c.Redirect(http.StatusSeeOther, slideUrl(path, nextFile, sortParam))
-				return
-			}
-			// If no files left, go back to directory
-			redir := "/files" + path
-			if sortParam != "" {
-				redir = redir + "?sort=" + sortParam
-			}
-			c.Redirect(http.StatusSeeOther, redir)
-			return
-		}
-		isVideo := sortedFiles[index].kind == Video
-		prev := prevUrl(sortedFiles, index, path, sortParam)
-		next := nextUrl(sortedFiles, index, path, sortParam)
-		resourceUrl := fileResourceUrl(sortedFiles[index])
-
-		// Calculate centered grid position for current file (in sorted order)
-		currentPosition := index
-		totalFiles := len(sortedFiles)
-		gridStart := currentPosition - PageSize/2
-		gridEnd := currentPosition + PageSize/2
-
-		// Handle negative wrap-around
-		if gridStart < 0 && totalFiles > 0 {
-			gridStart = totalFiles + gridStart
-		}
-
-		filePath := cx.buildFilePath(sortedFiles[index], sortParam)
-		fmt.Println("slide", sortedFiles[index], idStr)
+		res, err := createParseRes(&cx, req)
 		c.HTML(http.StatusOK, "slide.tmpl", gin.H{
-			"Name":        sortedFiles[index].name,
-			"FilePath":    template.HTML(filePath),
-			"isVideo":     isVideo,
-			"ResourceUrl": resourceUrl,
-			"PrevUrl":     prev,
-			"NextUrl":     next,
-			"DirectoryId": directory.id,
-			"FileId":      id,
-			"FlatFileId":  sortedFiles[index].id,
-			"Path":        path,
-			"GridStart":   gridStart,
-			"GridEnd":     gridEnd,
-			"Sort":        sortParam,
+			"Name":        res.name,
+			"FilePath":    template.HTML(res.filePath),
+			"isVideo":     res.isVideo,
+			"ResourceUrl": res.resourceUrl,
+			"PrevUrl":     res.prevUrl,
+			"NextUrl":     res.nextUrl,
+			"DirectoryId": res.directoryId,
+			"FileId":      res.fileId,
+			"Path":        res.path,
+			"GridStart":   res.gridStart,
+			"GridEnd":     res.gridEnd,
+			"Sort":        req.sortBy.toStr(),
 		})
 	})
 
@@ -775,19 +725,16 @@ func returnFileByPath(c *gin.Context, path string) {
 
 func returnFileById(cx *Context, c *gin.Context, id int) {
 	// If file tombstoned, treat as invalid
-	if id < 0 || id >= len(cx.files) {
+	file, err := cx.getFileById(id)
+	if err != nil {
 		handleInvalidFile(c, fmt.Sprintf("invalid id %d", id))
 		return
 	}
-	if cx.files[id].deleted {
+	if file.deleted {
 		handleInvalidFile(c, "File deleted")
 		return
 	}
-	path, err := cx.getPath(id)
-	if err != nil {
-		handleInvalidFile(c, err.Error())
-		return
-	}
+	path := file.filePath
 	returnFileByPath(c, path)
 }
 
@@ -845,4 +792,40 @@ func combineDirectories(cx *Context, directories []Directory) Directory {
 	cx.directories = append(cx.directories, virtualDir)
 
 	return virtualDir
+}
+
+type SortBy int
+
+const (
+	Name SortBy = iota
+	Latest
+	Oldest
+)
+
+type ReqBase struct {
+	sortBy SortBy
+}
+
+func sortByFromStr(value string) (SortBy, error) {
+	switch strings.ToLower(value) {
+	case "latest":
+		return Latest, nil
+	case "oldest":
+		return Oldest, nil
+	case "name":
+		return Name, nil
+	default:
+		return -1, errors.New("Invalid sortBy value: " + value)
+	}
+}
+
+func (s *SortBy) toStr() string {
+	switch *s {
+	case Latest:
+		return "latest"
+	case Oldest:
+		return "oldest"
+	default:
+		return "name"
+	}
 }

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os/exec"
 	"sort"
@@ -15,31 +14,6 @@ type deleteReq struct {
 	ReqBase
 	fileId int
 	dirId  int
-}
-
-type SortBy int
-
-const (
-	Name SortBy = iota
-	Latest
-	Oldest
-)
-
-type ReqBase struct {
-	sortBy SortBy
-}
-
-func sortByFromStr(value string) (SortBy, error) {
-	switch strings.ToLower(value) {
-	case "latest":
-		return Latest, nil
-	case "oldest":
-		return Oldest, nil
-	case "name":
-		return Name, nil
-	default:
-		return -1, errors.New("Invalid sortBy value: " + value)
-	}
 }
 
 func parseDeleteReq(c *gin.Context) (*deleteReq, error) {
@@ -91,7 +65,6 @@ func handleDelete(cx *Context, c *gin.Context, req deleteReq) (*File, error) {
 	}
 
 	path := file.filePath
-	fmt.Println("Deleting file %d at %s", file.id, path)
 	err = moveToTrash(path)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to delete file %d due to %s", file.id, err.Error())
