@@ -9,7 +9,7 @@
 </head>
 <body>
     <a href="/" class="home-button" title="Go to Home">🏠</a>
-
+    <span>{{.FlatFileId}}</span>
     <div class="file-path">
         <span class="path-label">Path:</span>
         {{.FilePath}}
@@ -30,7 +30,7 @@
 
     <div style="margin: 12px 0; display: flex; gap: 8px; align-items: center;">
         <form action="/delete" method="POST">
-            <input type="hidden" name="fileId" value="{{.FileId}}">
+            <input type="hidden" name="fileId" value="{{.FlatFileId}}">
             <input type="hidden" name="directoryId" value="{{.DirectoryId}}">
             <input type="hidden" name="path" value="{{.Path}}">
             <input type="hidden" name="sort" value="{{.Sort}}">
