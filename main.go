@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -65,6 +64,13 @@ func (cx *Context) getDirectoryById(id int) (*Directory, error) {
 		return nil, fmt.Errorf("invalid directory id %d", id)
 	}
 	return &cx.directories[id], nil
+}
+
+func (cx *Context) getFileById(id int) (*File, error) {
+	if id < 0 || id >= len(cx.files) {
+		return nil, fmt.Errorf("Invalid file id %d", id)
+	}
+	return &cx.files[id], nil
 }
 
 // buildFilePath constructs the full path to a file using its dirPath array with clickable links
@@ -673,56 +679,19 @@ func main() {
 
 	// Delete endpoint: move file to system trash, mark tombstone, redirect
 	r.POST("/delete", func(c *gin.Context) {
-		fileIdStr := c.PostForm("fileId")
-		dirIdStr := c.PostForm("directoryId")
+		req, err := parseDeleteReq(c)
 		pathParam := c.PostForm("path")
 		sortParam := strings.ToLower(c.DefaultPostForm("sort", "name"))
-
-		fileId, err := strconv.Atoi(fileIdStr)
 		if err != nil {
-			handleInvalidFile(c, err.Error())
+			handleError(c, 400, err.Error())
 			return
 		}
-		dirId, err := strconv.Atoi(dirIdStr)
+		nextFile, err := handleDelete(&cx, c, *req)
 		if err != nil {
-			handleInvalidFile(c, err.Error())
+			handleError(c, 500, err.Error())
 			return
 		}
-
-		dir, err := cx.getDirectoryById(dirId)
-		if err != nil {
-			handleInvalidFile(c, err.Error())
-			return
-		}
-		fmt.Println("fieldIdStr:", fileIdStr, cx.files[fileId])
-		// Trash the file
-		pathToFile, err := cx.getPath(fileId)
-		if err != nil {
-			handleInvalidFile(c, err.Error())
-			return
-		}
-
-		if err := moveToTrash(pathToFile); err != nil {
-			log.Printf("Error moving file to trash: %v", err)
-			if _, statErr := os.Stat(pathToFile); statErr == nil {
-				handleError(c, http.StatusInternalServerError, fmt.Sprintf("failed to move to trash: %v", err))
-				return
-			}
-		}
-
-		if fileId >= 0 && fileId < len(cx.files) {
-			cx.files[fileId].deleted = true
-		}
-		dirFiles := getSortedMediaFilesTmp(&cx, dir.files, sortParam)
-		nextId := 0
-		for i, f := range dirFiles {
-			if f.id == fileId {
-				nextId = (i + 1) % len(dirFiles)
-				break
-			}
-		}
-
-		redirectUrl := slideUrl(pathParam, dirFiles[nextId], sortParam)
+		redirectUrl := slideUrl(pathParam, *nextFile, sortParam)
 		c.Redirect(http.StatusSeeOther, redirectUrl)
 	})
 
@@ -876,34 +845,4 @@ func combineDirectories(cx *Context, directories []Directory) Directory {
 	cx.directories = append(cx.directories, virtualDir)
 
 	return virtualDir
-}
-
-// moveToTrash attempts to move the file to the system's recycle bin.
-// On Linux, it tries common mechanisms in order.
-func moveToTrash(path string) error {
-	// Prefer gio (GLib) trash which adheres to the FreeDesktop Trash spec
-	if err := tryExec("gio", "trash", path); err == nil {
-		return nil
-	}
-	// Older gvfs-trash
-	if err := tryExec("gvfs-trash", path); err == nil {
-		return nil
-	}
-	// trash-put from trash-cli
-	if err := tryExec("trash-put", path); err == nil {
-		return nil
-	}
-	// KDE kioclient5
-	if err := tryExec("kioclient5", "move", path, "trash:/"); err == nil {
-		return nil
-	}
-	return fmt.Errorf("no trash utility found (tried gio, gvfs-trash, trash-put, kioclient5)")
-}
-
-func tryExec(name string, args ...string) error {
-	if _, err := exec.LookPath(name); err != nil {
-		return err
-	}
-	cmd := exec.Command(name, args...)
-	return cmd.Run()
 }
