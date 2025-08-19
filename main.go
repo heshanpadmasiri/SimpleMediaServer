@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"html/template"
 	"log"
@@ -29,37 +30,27 @@ const (
 )
 
 type File struct {
-	name    string
-	id      int
-	kind    FileKind
-	dirPath []int
-	modTime time.Time
+	name     string
+	id       int
+	kind     FileKind
+	dirPath  []int
+	modTime  time.Time
+	filePath string
+	deleted  bool
 }
 
 type Directory struct {
 	id             int
 	name           string
-	files          []File
+	files          []int
 	childDirectory []Directory
 	modTime        time.Time
 }
 
 type Context struct {
-	paths       []string
 	directories []Directory
-	flatFiles   []File
-}
-
-// given file index get the path from context
-func (cx *Context) getPath(id int) (string, error) {
-	if id < 0 || id >= len(cx.paths) {
-		return "", fmt.Errorf("invalid id %d", id)
-	}
-	return cx.paths[id], nil
-}
-
-func (cx *Context) getNextDirectoryId() int {
-	return len(cx.directories)
+	files       []File
+	rootDir     *Directory
 }
 
 func (cx *Context) getDirectoryById(id int) (*Directory, error) {
@@ -69,8 +60,15 @@ func (cx *Context) getDirectoryById(id int) (*Directory, error) {
 	return &cx.directories[id], nil
 }
 
+func (cx *Context) getFileById(id int) (*File, error) {
+	if id < 0 || id >= len(cx.files) {
+		return nil, fmt.Errorf("invalid file id %d", id)
+	}
+	return &cx.files[id], nil
+}
+
 // buildFilePath constructs the full path to a file using its dirPath array with clickable links
-func (cx *Context) buildFilePath(file File) string {
+func (cx *Context) buildFilePath(file File, sortParam string) string {
 	if len(file.dirPath) == 0 {
 		return file.name
 	}
@@ -91,7 +89,12 @@ func (cx *Context) buildFilePath(file File) string {
 			} else {
 				currentPath = currentPath + "/" + dirName
 			}
-			link := fmt.Sprintf(`<a href="/files/%s">%s</a>`, currentPath, dirName)
+			link := ""
+			if sortParam != "" {
+				link = fmt.Sprintf(`<a href="/files/%s?sort=%s">%s</a>`, currentPath, sortParam, dirName)
+			} else {
+				link = fmt.Sprintf(`<a href="/files/%s">%s</a>`, currentPath, dirName)
+			}
 			pathParts = append(pathParts, link)
 		}
 	}
@@ -124,19 +127,18 @@ func getDirectoryByPath(root *Directory, path string) *Directory {
 	return nil
 }
 
-func addFileToContext(cx *Context, path string, dirPath []int) (File, error) {
+func addFileToContext(cx *Context, path string, dirPath []int) (int, error) {
 	log.Printf("addFileToContext: path=%s dirPath=%v", path, dirPath)
-	cx.paths = append(cx.paths, path)
 	fileInfo, err := os.Stat(path)
 	if err != nil {
-		return File{}, err
+		return 0, err
 	}
 
 	name := fileInfo.Name()
-	id := len(cx.flatFiles)
-	file := File{name: name, id: id, kind: fileKind(path), dirPath: dirPath, modTime: fileInfo.ModTime()}
-	cx.flatFiles = append(cx.flatFiles, file)
-	return file, nil
+	id := len(cx.files)
+	file := File{name: name, id: id, kind: fileKind(path), dirPath: dirPath, modTime: fileInfo.ModTime(), filePath: path, deleted: false}
+	cx.files = append(cx.files, file)
+	return id, nil
 }
 
 func fileKind(path string) FileKind {
@@ -166,11 +168,11 @@ func addDirRootToContext(cx *Context, path string, parentPath []int) (Directory,
 	if err != nil {
 		return Directory{}, err
 	}
-	directory := Directory{id: dirId, name: name, files: []File{}, childDirectory: []Directory{}, modTime: dirInfo.ModTime()}
+	directory := Directory{id: dirId, name: name, files: []int{}, childDirectory: []Directory{}, modTime: dirInfo.ModTime()}
 	cx.directories = append(cx.directories, directory)
 
 	childDirectory := make([]Directory, 0)
-	files := make([]File, 0)
+	files := make([]int, 0)
 
 	entries, err := os.ReadDir(path)
 	if err != nil {
@@ -322,14 +324,11 @@ func imageResourceUrlById(id int) string {
 	return "/img/" + strconv.Itoa(id)
 }
 
-
-
-
-
-func getSortedMediaFiles(files []File, sortParam string) []File {
+func getSortedMediaFiles(cx *Context, files []int, sortParam string) []File {
 	mediaFiles := make([]File, 0)
-	for _, f := range files {
-		if f.kind != Other {
+	for _, idx := range files {
+		f := cx.files[idx]
+		if f.kind != Other && !f.deleted {
 			mediaFiles = append(mediaFiles, f)
 		}
 	}
@@ -344,9 +343,10 @@ func getSortedMediaFiles(files []File, sortParam string) []File {
 	return mediaFiles
 }
 
+
 func fileDataInRange(cx *Context, directory *Directory, path string, start int, end int, sortParam string) []FileData {
 	data := make([]FileData, 0)
-	mediaFiles := getSortedMediaFiles(directory.files, sortParam)
+	mediaFiles := getSortedMediaFiles(cx, directory.files, sortParam)
 
 	totalFiles := len(mediaFiles)
 	if totalFiles == 0 {
@@ -370,20 +370,62 @@ func fileDataInRange(cx *Context, directory *Directory, path string, start int, 
 	return data
 }
 
-func countMediaFiles(directory *Directory) int {
+func countMediaFiles(cx *Context, directory *Directory) int {
 	count := 0
-	for _, file := range directory.files {
-		if file.kind != Other {
+	for _, idx := range directory.files {
+		file := cx.files[idx]
+		if file.kind != Other && !file.deleted {
 			count++
 		}
 	}
 	return count
 }
 
+// findNextNonDeletedById returns the file with the smallest id greater than afterId;
+// if none, it returns the file with the smallest id. Only considers non-deleted media files.
+func findNextNonDeletedById(cx *Context, files []int, afterId int) (File, bool) {
+	var (
+		nextCandidate File
+		foundNext     bool
+		smallest      File
+		foundSmallest bool
+	)
+	for _, id := range files {
+		f := cx.files[id]
+		if f.kind == Other || f.deleted {
+			continue
+		}
+		if !foundSmallest || f.id < smallest.id {
+			smallest = f
+			foundSmallest = true
+		}
+		if f.id > afterId {
+			if !foundNext || f.id < nextCandidate.id {
+				nextCandidate = f
+				foundNext = true
+			}
+		}
+	}
+	if foundNext {
+		return nextCandidate, true
+	}
+	if foundSmallest {
+		return smallest, true
+	}
+	return File{}, false
+}
 
+func validateContext(cx *Context) {
+	for i, file := range cx.files {
+		if file.id != i {
+			fmt.Println("invalid index")
+			os.Exit(1)
+		}
+	}
+}
 
 func main() {
-	cx := Context{paths: make([]string, 0), directories: make([]Directory, 0), flatFiles: make([]File, 0)}
+	cx := Context{directories: make([]Directory, 0), files: make([]File, 0)}
 
 	// Load configuration
 	config, err := loadConfig()
@@ -406,7 +448,7 @@ func main() {
 		virtualDir := Directory{
 			id:             0,
 			name:           "$Virtual",
-			files:          []File{},
+			files:          []int{},
 			childDirectory: directories,
 		}
 		cx.directories = append(cx.directories, virtualDir)
@@ -424,6 +466,8 @@ func main() {
 		}
 		rootDir = combineDirectories(&cx, directories)
 	}
+	cx.rootDir = &rootDir
+	validateContext(&cx)
 	r := gin.Default()
 	r.LoadHTMLGlob("templates/*")
 	r.Static("/static", "./static")
@@ -441,7 +485,6 @@ func main() {
 		}
 		returnDirectoryPage(c, &cx, directory, path)
 	})
-	// TODO: refactor image and video handlers
 	r.GET("/img/:id", func(c *gin.Context) {
 		idStr := c.Param("id")
 		id, err := strconv.Atoi(idStr)
@@ -488,57 +531,28 @@ func main() {
 	})
 
 	r.GET("/slides/:id/*path", func(c *gin.Context) {
-		path := c.Param("path")
-		sortParam := strings.ToLower(c.DefaultQuery("sort", "name"))
-		idStr := c.Param("id")
-		directory := getDirectoryByPath(&rootDir, path)
-		if directory == nil {
-			c.HTML(http.StatusNotFound, "invalidPath.tmpl", gin.H{
-				"path": path,
-			})
-			return
-		}
-		id, err := strconv.Atoi(idStr)
+		req, err := parseSlideReq(c)
 		if err != nil {
-			handleInvalidFile(c, err.Error())
+			handleError(c, 400, err.Error())
+		}
+		res, err := createParseRes(&cx, req)
+		if err != nil {
+			handleError(c, 500, err.Error())
 			return
 		}
-		sortedFiles := getSortedMediaFiles(directory.files, sortParam)
-		index := index(sortedFiles, id)
-		if index == -1 {
-			handleInvalidFile(c, "File not found")
-			return
-		}
-		isVideo := sortedFiles[index].kind == Video
-		prev := prevUrl(sortedFiles, index, path, sortParam)
-		next := nextUrl(sortedFiles, index, path, sortParam)
-		resourceUrl := fileResourceUrl(sortedFiles[index])
-
-		// Calculate centered grid position for current file (in sorted order)
-		currentPosition := index
-		totalFiles := len(sortedFiles)
-		gridStart := currentPosition - PageSize/2
-		gridEnd := currentPosition + PageSize/2
-
-		// Handle negative wrap-around
-		if gridStart < 0 && totalFiles > 0 {
-			gridStart = totalFiles + gridStart
-		}
-
-		filePath := cx.buildFilePath(sortedFiles[index])
 		c.HTML(http.StatusOK, "slide.tmpl", gin.H{
-			"Name":        sortedFiles[index].name,
-			"FilePath":    template.HTML(filePath),
-			"isVideo":     isVideo,
-			"ResourceUrl": resourceUrl,
-			"PrevUrl":     prev,
-			"NextUrl":     next,
-			"DirectoryId": directory.id,
-			"FileId":      id,
-			"Path":        path,
-			"GridStart":   gridStart,
-			"GridEnd":     gridEnd,
-			"Sort":        sortParam,
+			"Name":        res.name,
+			"FilePath":    template.HTML(res.filePath),
+			"isVideo":     res.isVideo,
+			"ResourceUrl": res.resourceUrl,
+			"PrevUrl":     res.prevUrl,
+			"NextUrl":     res.nextUrl,
+			"DirectoryId": res.directoryId,
+			"FileId":      res.fileId,
+			"Path":        res.path,
+			"GridStart":   res.gridStart,
+			"GridEnd":     res.gridEnd,
+			"Sort":        req.sortBy.toStr(),
 		})
 	})
 
@@ -558,10 +572,18 @@ func main() {
 			handleInvalidFile(c, err.Error())
 			return
 		}
-		sortedFiles := getSortedMediaFiles(directory.files, sortParam)
+		sortedFiles := getSortedMediaFiles(&cx, directory.files, sortParam)
 		index := index(sortedFiles, id)
 		if index == -1 {
-			handleInvalidFile(c, "File not found")
+			if nextFile, ok := findNextNonDeletedById(&cx, directory.files, id); ok {
+				c.Redirect(http.StatusSeeOther, fullscreenUrl(path, nextFile, sortParam))
+				return
+			}
+			redir := "/files" + path
+			if sortParam != "" {
+				redir = redir + "?sort=" + sortParam
+			}
+			c.Redirect(http.StatusSeeOther, redir)
 			return
 		}
 
@@ -591,16 +613,25 @@ func main() {
 		})
 	})
 
-	r.Run(fmt.Sprintf(":%d", config.Port))
-}
+	// Delete endpoint: move file to system trash, mark tombstone, redirect
+	r.POST("/delete", func(c *gin.Context) {
+		req, err := parseDeleteReq(c)
+		pathParam := c.PostForm("path")
+		sortParam := strings.ToLower(c.DefaultPostForm("sort", "name"))
+		if err != nil {
+			handleError(c, 400, err.Error())
+			return
+		}
+		nextFile, err := handleDelete(&cx, c, *req)
+		if err != nil {
+			handleError(c, 500, err.Error())
+			return
+		}
+		redirectUrl := slideUrl(pathParam, *nextFile, sortParam)
+		c.Redirect(http.StatusSeeOther, redirectUrl)
+	})
 
-func getIndexRange(index int) (int, int) {
-	start := index - 5
-	if start < 0 {
-		start = 0
-	}
-	end := start + 10
-	return start, end
+	r.Run(fmt.Sprintf(":%d", config.Port))
 }
 
 func index(files []File, id int) int {
@@ -648,7 +679,7 @@ func returnDirectoryPage(c *gin.Context, cx *Context, directory *Directory, path
 	sortParam := strings.ToLower(c.DefaultQuery("sort", "name"))
 	Directories := childDirectoryData(directory, path, sortParam)
 	hasDirectories := len(Directories) > 0
-	hasFiles := countMediaFiles(directory) > 0
+	hasFiles := countMediaFiles(cx, directory) > 0
 	c.HTML(http.StatusOK, "directoryData.tmpl", gin.H{
 		"name":           directory.name,
 		"Directories":    Directories,
@@ -679,11 +710,17 @@ func returnFileByPath(c *gin.Context, path string) {
 }
 
 func returnFileById(cx *Context, c *gin.Context, id int) {
-	path, err := cx.getPath(id)
+	// If file tombstoned, treat as invalid
+	file, err := cx.getFileById(id)
 	if err != nil {
-		handleInvalidFile(c, err.Error())
+		handleInvalidFile(c, fmt.Sprintf("invalid id %d", id))
 		return
 	}
+	if file.deleted {
+		handleInvalidFile(c, "File deleted")
+		return
+	}
+	path := file.filePath
 	returnFileByPath(c, path)
 }
 
@@ -696,7 +733,7 @@ func returnImageGrid(cx *Context, c *gin.Context, directoryId int, start int, en
 	files := fileDataInRange(cx, directory, path, start, end, sortParam)
 	nextStart := end
 	nextEnd := end + PageSize
-	totalFiles := countMediaFiles(directory)
+	totalFiles := countMediaFiles(cx, directory)
 
 	// Always show more button since we have wrap-around
 	// Only hide if there are no files at all
@@ -733,7 +770,7 @@ func combineDirectories(cx *Context, directories []Directory) Directory {
 	virtualDir := Directory{
 		id:             len(cx.directories),
 		name:           "Collections",
-		files:          []File{},
+		files:          []int{},
 		childDirectory: directories,
 	}
 
@@ -741,4 +778,40 @@ func combineDirectories(cx *Context, directories []Directory) Directory {
 	cx.directories = append(cx.directories, virtualDir)
 
 	return virtualDir
+}
+
+type SortBy int
+
+const (
+	Name SortBy = iota
+	Latest
+	Oldest
+)
+
+type ReqBase struct {
+	sortBy SortBy
+}
+
+func sortByFromStr(value string) (SortBy, error) {
+	switch strings.ToLower(value) {
+	case "latest":
+		return Latest, nil
+	case "oldest":
+		return Oldest, nil
+	case "name":
+		return Name, nil
+	default:
+		return -1, errors.New("invalid sortBy value: " + value)
+	}
+}
+
+func (s *SortBy) toStr() string {
+	switch *s {
+	case Latest:
+		return "latest"
+	case Oldest:
+		return "oldest"
+	default:
+		return "name"
+	}
 }
