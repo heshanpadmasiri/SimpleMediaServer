@@ -46,9 +46,9 @@ func parseSlideReq(c *gin.Context) (*slideReq, error) {
 func createParseRes(cx *Context, req *slideReq) (*slideRes, error) {
 	directory := getDirectoryByPath(cx.rootDir, req.path)
 	if directory == nil {
-		return nil, fmt.Errorf("Failed to find directory matching path: %s", req.path)
+		return nil, fmt.Errorf("failed to find directory matching path: %s", req.path)
 	}
-	sortedFiles := getSortedMediaFilesNew(cx, directory.files, req.sortBy)
+	sortedFiles := getSortedMediaFiles(cx, directory.files, req.sortBy.toStr())
 	index := index(sortedFiles, req.fileId)
 	isVideo := sortedFiles[index].kind == Video
 	prev := prevUrl(sortedFiles, index, req.path, req.sortBy.toStr())

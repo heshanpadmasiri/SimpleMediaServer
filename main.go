@@ -62,7 +62,7 @@ func (cx *Context) getDirectoryById(id int) (*Directory, error) {
 
 func (cx *Context) getFileById(id int) (*File, error) {
 	if id < 0 || id >= len(cx.files) {
-		return nil, fmt.Errorf("Invalid file id %d", id)
+		return nil, fmt.Errorf("invalid file id %d", id)
 	}
 	return &cx.files[id], nil
 }
@@ -343,24 +343,6 @@ func getSortedMediaFiles(cx *Context, files []int, sortParam string) []File {
 	return mediaFiles
 }
 
-func getSortedMediaFilesTmp(cx *Context, files []int, sortParam string) []File {
-	mediaFiles := make([]File, 0)
-	for _, idx := range files {
-		f := cx.files[idx]
-		if f.kind != Other {
-			mediaFiles = append(mediaFiles, f)
-		}
-	}
-	switch strings.ToLower(sortParam) {
-	case "latest":
-		sort.SliceStable(mediaFiles, func(i, j int) bool { return mediaFiles[i].modTime.After(mediaFiles[j].modTime) })
-	case "oldest":
-		sort.SliceStable(mediaFiles, func(i, j int) bool { return mediaFiles[i].modTime.Before(mediaFiles[j].modTime) })
-	default: // name
-		sort.SliceStable(mediaFiles, func(i, j int) bool { return strings.ToLower(mediaFiles[i].name) < strings.ToLower(mediaFiles[j].name) })
-	}
-	return mediaFiles
-}
 
 func fileDataInRange(cx *Context, directory *Directory, path string, start int, end int, sortParam string) []FileData {
 	data := make([]FileData, 0)
@@ -554,6 +536,10 @@ func main() {
 			handleError(c, 400, err.Error())
 		}
 		res, err := createParseRes(&cx, req)
+		if err != nil {
+			handleError(c, 500, err.Error())
+			return
+		}
 		c.HTML(http.StatusOK, "slide.tmpl", gin.H{
 			"Name":        res.name,
 			"FilePath":    template.HTML(res.filePath),
@@ -815,7 +801,7 @@ func sortByFromStr(value string) (SortBy, error) {
 	case "name":
 		return Name, nil
 	default:
-		return -1, errors.New("Invalid sortBy value: " + value)
+		return -1, errors.New("invalid sortBy value: " + value)
 	}
 }
 

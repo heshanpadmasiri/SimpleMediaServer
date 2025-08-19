@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os/exec"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -43,7 +42,7 @@ func handleDelete(cx *Context, c *gin.Context, req deleteReq) (*File, error) {
 		return nil, err
 	}
 	if file.deleted {
-		return nil, fmt.Errorf("Trying to delete already deleted file at %d", file.id)
+		return nil, fmt.Errorf("trying to delete already deleted file at %d", file.id)
 	}
 	dir, err := cx.getDirectoryById(req.dirId)
 	if err != nil {
@@ -51,7 +50,7 @@ func handleDelete(cx *Context, c *gin.Context, req deleteReq) (*File, error) {
 	}
 
 	// We need to get files before marking file as deleted otherwise it will not be in the list
-	filesInDir := getSortedMediaFilesNew(cx, dir.files, req.sortBy)
+	filesInDir := getSortedMediaFiles(cx, dir.files, req.sortBy.toStr())
 	file.deleted = true
 	nextId := -1
 	for i, f := range filesInDir {
@@ -61,13 +60,13 @@ func handleDelete(cx *Context, c *gin.Context, req deleteReq) (*File, error) {
 		}
 	}
 	if nextId == -1 {
-		return nil, fmt.Errorf("Failed to find file in directory %d", dir.id)
+		return nil, fmt.Errorf("failed to find file in directory %d", dir.id)
 	}
 
 	path := file.filePath
 	err = moveToTrash(path)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to delete file %d due to %s", file.id, err.Error())
+		return nil, fmt.Errorf("failed to delete file %d due to %s", file.id, err.Error())
 	}
 	return &filesInDir[nextId], nil
 }
@@ -100,23 +99,4 @@ func tryExec(name string, args ...string) error {
 	}
 	cmd := exec.Command(name, args...)
 	return cmd.Run()
-}
-
-func getSortedMediaFilesNew(cx *Context, files []int, sortBy SortBy) []File {
-	mediaFiles := make([]File, 0)
-	for _, idx := range files {
-		f := cx.files[idx]
-		if f.kind != Other {
-			mediaFiles = append(mediaFiles, f)
-		}
-	}
-	switch sortBy {
-	case Latest:
-		sort.SliceStable(mediaFiles, func(i, j int) bool { return mediaFiles[i].modTime.After(mediaFiles[j].modTime) })
-	case Oldest:
-		sort.SliceStable(mediaFiles, func(i, j int) bool { return mediaFiles[i].modTime.Before(mediaFiles[j].modTime) })
-	default: // name
-		sort.SliceStable(mediaFiles, func(i, j int) bool { return strings.ToLower(mediaFiles[i].name) < strings.ToLower(mediaFiles[j].name) })
-	}
-	return mediaFiles
 }
