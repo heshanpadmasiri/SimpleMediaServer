@@ -343,7 +343,6 @@ func getSortedMediaFiles(cx *Context, files []int, sortParam string) []File {
 	return mediaFiles
 }
 
-
 func fileDataInRange(cx *Context, directory *Directory, path string, start int, end int, sortParam string) []FileData {
 	data := make([]FileData, 0)
 	mediaFiles := getSortedMediaFiles(cx, directory.files, sortParam)

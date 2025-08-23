@@ -20,6 +20,8 @@
           ];
 
           shellHook = ''
+            export CGO_CFLAGS="-U_FORTIFY_SOURCE"
+            export CGO_CFLAGS_ALLOW="-D_FORTIFY_SOURCE.*"
             export SHELL=${pkgs.fish}/bin/fish
             exec ${pkgs.fish}/bin/fish
           '';
