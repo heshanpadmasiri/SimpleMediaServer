@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  check-release:
+    runs-on: ubuntu-latest
+    outputs:
+      should-release: ${{ steps.check.outputs.should-release }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Check if release already exists
+        id: check
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "Release $VERSION already exists!"
+            exit 1
+          else
+            echo "should-release=true" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  release:
+    needs: check-release
+    if: needs.check-release.outputs.should-release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Build for Linux amd64
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o SimpleMediaServer-linux-amd64 .
+
+      - name: Build for Linux arm64
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o SimpleMediaServer-linux-arm64 .
+
+      - name: Build for macOS amd64
+        run: |
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o SimpleMediaServer-darwin-amd64 .
+
+      - name: Build for macOS arm64 (Apple Silicon)
+        run: |
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o SimpleMediaServer-darwin-arm64 .
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.check-release.outputs.version }}
+          name: Release ${{ needs.check-release.outputs.version }}
+          body: |
+            ## Downloads
+            - **Linux (x86_64)**: SimpleMediaServer-linux-amd64
+            - **Linux (ARM64)**: SimpleMediaServer-linux-arm64
+            - **macOS (Intel)**: SimpleMediaServer-darwin-amd64
+            - **macOS (Apple Silicon)**: SimpleMediaServer-darwin-arm64
+
+            All binaries are statically linked and ready to run without dependencies.
+
+            ## Installation
+            1. Download the appropriate binary for your platform
+            2. Make it executable: `chmod +x SimpleMediaServer-*`
+            3. Run: `./SimpleMediaServer-*`
+
+            ## Configuration
+            Copy `config.toml.example` to `config.toml` and configure your media directories.
+          files: |
+            SimpleMediaServer-linux-amd64
+            SimpleMediaServer-linux-arm64
+            SimpleMediaServer-darwin-amd64
+            SimpleMediaServer-darwin-arm64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
