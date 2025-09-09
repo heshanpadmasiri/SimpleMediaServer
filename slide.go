@@ -53,7 +53,7 @@ func createParseRes(cx *Context, req *slideReq) (*slideRes, error) {
 	isVideo := sortedFiles[index].kind == Video
 	prev := prevUrl(sortedFiles, index, req.path, req.sortBy.toStr())
 	next := nextUrl(sortedFiles, index, req.path, req.sortBy.toStr())
-	resourceUrl := fileResourceUrl(sortedFiles[index])
+	resourceUrl := fileResourceURL(sortedFiles[index])
 
 	currentPosition := index
 	totalFiles := len(sortedFiles)

@@ -291,37 +291,21 @@ func fullscreenUrl(path string, file File, sortParam string) string {
 	return url
 }
 
-func fileResourceUrl(file File) string {
+func fileResourceURL(file File) string {
+	var path string
 	switch file.kind {
 	case Video:
-		return videoResourceUrlById(file.id)
+		path = "/video/"
 	case Image:
-		return imageResourceUrlById(file.id)
+		path = "/img/"
 	default:
 		panic("unimplemented")
 	}
+	return path + strconv.Itoa(file.id) + "?t=" + strconv.FormatInt(file.modTime.Unix(), 10)
 }
 
-func fileThumbnailUrl(cx *Context, file File) string {
-	switch file.kind {
-	case Video:
-		// For videos, use the video file itself as thumbnail
-		// The browser will display the first frame
-		// FIXME: for this to work we need to use a video tag not an img tag
-		return videoResourceUrlById(file.id)
-	case Image:
-		return imageResourceUrlById(file.id)
-	default:
-		panic("unimplemented")
-	}
-}
-
-func videoResourceUrlById(id int) string {
-	return "/video/" + strconv.Itoa(id)
-}
-
-func imageResourceUrlById(id int) string {
-	return "/img/" + strconv.Itoa(id)
+func fileThumbnailURL(file File) string {
+	return fileResourceURL(file)
 }
 
 func getSortedMediaFiles(cx *Context, files []int, sortParam string) []File {
@@ -360,8 +344,8 @@ func fileDataInRange(cx *Context, directory *Directory, path string, start int, 
 		data = append(data, FileData{
 			Name:         file.name,
 			Url:          slideUrl(path, file, sortParam),
-			ResourceUrl:  fileResourceUrl(file),
-			ThumbnailUrl: fileThumbnailUrl(cx, file),
+			ResourceUrl:  fileResourceURL(file),
+			ThumbnailUrl: fileThumbnailURL(file),
 			IsVideo:      file.kind == Video,
 		})
 	}
@@ -589,7 +573,7 @@ func main() {
 		isVideo := sortedFiles[index].kind == Video
 		prev := prevFullscreenUrl(sortedFiles, index, path, sortParam)
 		next := nextFullscreenUrl(sortedFiles, index, path, sortParam)
-		resourceUrl := fileResourceUrl(sortedFiles[index])
+		resourceUrl := fileResourceURL(sortedFiles[index])
 
 		// Count total images/videos for counter based on sorted files
 		totalCount := len(sortedFiles)
