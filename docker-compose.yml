@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  media-server:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      # Mount media directories (read-only)
+      - ~/Media/:/media:ro
+    restart: unless-stopped
+    
+    # Security settings
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,size=100m

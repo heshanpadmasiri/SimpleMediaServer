@@ -1,0 +1,10 @@
+# Container Configuration for SimpleMediaServer
+# This config is baked into the container image for consistent deployment
+
+# Port to run the server on
+Port = 8080
+
+# Media sources mapped to container paths
+MediaSources = [
+    "/media"
+]
