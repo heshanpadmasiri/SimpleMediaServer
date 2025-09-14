@@ -1,0 +1,27 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+!CLAUDE.md
+
+# IDE
+.vscode
+.DS_Store
+
+# Build artifacts
+media-server
+
+# Test data (shouldn't be in container)
+testData
+
+# Nix files
+flake.nix
+flake.lock
+
+# GitHub workflows
+.github
+
+# Local config files
+config.toml
