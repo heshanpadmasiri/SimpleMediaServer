@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -407,6 +411,79 @@ func validateContext(cx *Context) {
 	}
 }
 
+// getHostIP gets the host machine's IP address, works correctly in containers
+func getHostIP() (string, error) {
+	// Try to connect to a remote address to determine the local IP
+	// This works even in containers as it uses the host's network interface
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return "", fmt.Errorf("failed to determine host IP: %w", err)
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	return localAddr.IP.String(), nil
+}
+
+// RegistryRequest represents the payload for registry registration
+type RegistryRequest struct {
+	ServiceName string `json:"service_name"`
+	LanIP       string `json:"lan_ip"`
+	Port        int    `json:"port"`
+}
+
+// registerWithRegistry registers the service with the registry if REGISTRY_URL is set
+func registerWithRegistry(port int) error {
+	registryURL := os.Getenv("REGISTRY_URL")
+	if registryURL == "" {
+		log.Println("REGISTRY_URL not set, skipping registry registration")
+		return nil
+	}
+
+	// Get the host IP
+	hostIP, err := getHostIP()
+	if err != nil {
+		return fmt.Errorf("failed to get host IP for registry registration: %w", err)
+	}
+
+	// Create the registration payload
+	payload := RegistryRequest{
+		ServiceName: "media",
+		LanIP:       hostIP,
+		Port:        port,
+	}
+
+	// Marshal to JSON
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal registry payload: %w", err)
+	}
+
+	// Make POST request to registry
+	url := registryURL + "/register"
+	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to register with registry at %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body for logging
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("Warning: failed to read registry response body: %v", err)
+	}
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		log.Printf("Successfully registered with registry at %s (IP: %s, Port: %d)", url, hostIP, port)
+		if len(body) > 0 {
+			log.Printf("Registry response: %s", string(body))
+		}
+		return nil
+	}
+
+	return fmt.Errorf("registry registration failed with status %d: %s", resp.StatusCode, string(body))
+}
+
 func main() {
 	cx := Context{directories: make([]Directory, 0), files: make([]File, 0)}
 
@@ -451,6 +528,12 @@ func main() {
 	}
 	cx.rootDir = &rootDir
 	validateContext(&cx)
+
+	// Register with registry if REGISTRY_URL is set
+	if err := registerWithRegistry(config.Port); err != nil {
+		log.Fatalf("Warning: Failed to register with registry: %v", err)
+	}
+
 	r := gin.Default()
 	r.LoadHTMLGlob("templates/*")
 	r.Static("/static", "./static")
