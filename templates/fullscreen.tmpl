@@ -176,7 +176,8 @@
         let isDragging = false;
         let currentUrl = window.location.href;
         let slideshowTimer = null;
-        let slideshowInterval = {{.SlideshowInterval}}; 
+        let slideshowInterval = {{.SlideshowInterval}};
+        let isVideo = {{.IsVideo}}; 
 
         // Touch/swipe navigation
         document.addEventListener('touchstart', function(e) {
@@ -285,12 +286,15 @@
         }
 
         function startSlideshow() {
-            // Only start slideshow if there's a next item available
-            const nextButton = document.querySelector('.nav-button.next');
-            if (nextButton && !nextButton.disabled) {
-                slideshowTimer = setTimeout(() => {
-                    navigateTo('{{.NextUrl}}');
-                }, slideshowInterval);
+            // Only start slideshow timer for images, not videos
+            if (!isVideo) {
+                // Only start slideshow if there's a next item available
+                const nextButton = document.querySelector('.nav-button.next');
+                if (nextButton && !nextButton.disabled) {
+                    slideshowTimer = setTimeout(() => {
+                        navigateTo('{{.NextUrl}}');
+                    }, slideshowInterval);
+                }
             }
         }
 
@@ -303,7 +307,10 @@
 
         function resetSlideshowTimer() {
             clearSlideshowTimer();
-            startSlideshow();
+            // Only restart slideshow for images, not videos
+            if (!isVideo) {
+                startSlideshow();
+            }
         }
 
         // Prevent context menu on image
@@ -311,14 +318,47 @@
             e.preventDefault();
         });
 
+        // Handle video events
+        function setupVideoHandling() {
+            if (isVideo) {
+                const video = document.querySelector('.fullscreen-video');
+                if (video) {
+                    // Auto-play the video
+                    video.play().catch(e => {
+                        console.log('Video autoplay failed:', e);
+                    });
+                    
+                    // Advance to next slide when video ends
+                    video.addEventListener('ended', function() {
+                        const nextButton = document.querySelector('.nav-button.next');
+                        if (nextButton && !nextButton.disabled) {
+                            navigateTo('{{.NextUrl}}');
+                        }
+                    });
+                    
+                    // Reset slideshow timer on video interaction
+                    video.addEventListener('play', function() {
+                        clearSlideshowTimer();
+                    });
+                    
+                    video.addEventListener('pause', function() {
+                        clearSlideshowTimer();
+                    });
+                }
+            }
+        }
+
         // Start the slideshow when the page loads
         document.addEventListener('DOMContentLoaded', function() {
+            setupVideoHandling();
             startSlideshow();
         });
 
-        // Also handle mouse movement to reset timer (optional - for more responsive UX)
+        // Also handle mouse movement to reset timer (only for images)
         document.addEventListener('mousemove', function(e) {
-            resetSlideshowTimer();
+            if (!isVideo) {
+                resetSlideshowTimer();
+            }
         });
     </script>
 </body>
