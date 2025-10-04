@@ -106,3 +106,4 @@ Files starting with '.' are automatically filtered out during scanning.
 - Where possible use standard html elements and go standard library.
 - Don't add comments describing each code block, instead extract blocks into functions with descriptive names.
 - When changing endpoint it is okay to break compatibility with existing clients as long as we modify all the frontend templates to use the new endpoint.
+- When asked to purpose a plan write it to a plan.md (if the file exists prompt user for guidence) and ask for feedback before implementing code
