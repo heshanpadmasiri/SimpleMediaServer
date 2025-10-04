@@ -37,6 +37,7 @@ func createTestContext(files []File, directories []Directory) *Context {
 		files:       files,
 		directories: directories,
 		rootDir:     nil,
+		systemUtils: NewSystemUtils(),
 	}
 }
 

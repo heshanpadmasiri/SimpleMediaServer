@@ -49,7 +49,17 @@ func createParseRes(cx *Context, req *slideReq) (*slideRes, error) {
 		return nil, fmt.Errorf("failed to find directory matching path: %s", req.path)
 	}
 	sortedFiles := getSortedMediaFiles(cx, directory.files, req.sortBy.toStr())
+
+	// Check if directory is empty
+	if len(sortedFiles) == 0 {
+		return nil, fmt.Errorf("directory is empty: %s", req.path)
+	}
+
 	index := index(sortedFiles, req.fileId)
+	if index == -1 {
+		return nil, fmt.Errorf("file with id %d not found in directory: %s", req.fileId, req.path)
+	}
+
 	isVideo := sortedFiles[index].kind == Video
 	prev := prevUrl(sortedFiles, index, req.path, req.sortBy.toStr())
 	next := nextUrl(sortedFiles, index, req.path, req.sortBy.toStr())

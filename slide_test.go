@@ -402,11 +402,11 @@ func TestCreateParseRes_EmptyDirectory_ReturnsError(t *testing.T) {
 		path:    "testdir",
 	}
 
-	// This should panic because we're trying to access a file that doesn't exist
-	// in an empty directory. The function doesn't handle this case gracefully.
-	assert.Panics(t, func() {
-		createParseRes(cx, req)
-	})
+	result, err := createParseRes(cx, req)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "directory is empty")
 }
 
 func TestCreateParseRes_SingleFile_HandlesCorrectly(t *testing.T) {
