@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 
@@ -64,39 +63,9 @@ func handleDelete(cx *Context, c *gin.Context, req deleteReq) (*File, error) {
 	}
 
 	path := file.filePath
-	err = moveToTrash(path)
+	err = cx.systemUtils.MoveToTrash(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete file %d due to %s", file.id, err.Error())
 	}
 	return &filesInDir[nextId], nil
-}
-
-// moveToTrash attempts to move the file to the system's recycle bin.
-// On Linux, it tries common mechanisms in order.
-func moveToTrash(path string) error {
-	// Prefer gio (GLib) trash which adheres to the FreeDesktop Trash spec
-	if err := tryExec("gio", "trash", path); err == nil {
-		return nil
-	}
-	// Older gvfs-trash
-	if err := tryExec("gvfs-trash", path); err == nil {
-		return nil
-	}
-	// trash-put from trash-cli
-	if err := tryExec("trash-put", path); err == nil {
-		return nil
-	}
-	// KDE kioclient5
-	if err := tryExec("kioclient5", "move", path, "trash:/"); err == nil {
-		return nil
-	}
-	return fmt.Errorf("no trash utility found (tried gio, gvfs-trash, trash-put, kioclient5)")
-}
-
-func tryExec(name string, args ...string) error {
-	if _, err := exec.LookPath(name); err != nil {
-		return err
-	}
-	cmd := exec.Command(name, args...)
-	return cmd.Run()
 }

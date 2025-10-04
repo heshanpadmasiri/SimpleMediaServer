@@ -55,6 +55,7 @@ type Context struct {
 	directories []Directory
 	files       []File
 	rootDir     *Directory
+	systemUtils SystemUtils
 }
 
 func (cx *Context) getDirectoryById(id int) (*Directory, error) {
@@ -226,6 +227,9 @@ type FileData struct {
 }
 
 func directoryUrl(path, name string) string {
+	if len(name) == 0 {
+		log.Panic("name can't be empty")
+	}
 	basePath := strings.Trim(path, "/")
 	prefix := "/files/"
 	if basePath == "" {
@@ -485,7 +489,11 @@ func registerWithRegistry(port int) error {
 }
 
 func main() {
-	cx := Context{directories: make([]Directory, 0), files: make([]File, 0)}
+	cx := Context{
+		directories: make([]Directory, 0),
+		files:       make([]File, 0),
+		systemUtils: NewSystemUtils(),
+	}
 
 	// Load configuration
 	config, err := loadConfig()
