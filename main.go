@@ -436,14 +436,8 @@ type RegistryRequest struct {
 	Port        int    `json:"port"`
 }
 
-// registerWithRegistry registers the service with the registry if REGISTRY_URL is set
-func registerWithRegistry(port int, timeout time.Duration) error {
-	registryURL := os.Getenv("REGISTRY_URL")
-	if registryURL == "" {
-		log.Println("REGISTRY_URL not set, skipping registry registration")
-		return nil
-	}
-
+// registerWithRegistry registers the service with the registry
+func registerWithRegistry(registryURL string, port int, timeout time.Duration) error {
 	// Get the host IP
 	hostIP, err := getHostIP()
 	if err != nil {
@@ -492,7 +486,7 @@ func registerWithRegistry(port int, timeout time.Duration) error {
 }
 
 // attemptRegistryWithRetries attempts to register with the registry with exponential backoff
-func attemptRegistryWithRetries(port int, maxRetries int, timeout time.Duration) error {
+func attemptRegistryWithRetries(registryURL string, port int, maxRetries int, timeout time.Duration) error {
 	const (
 		initialDelay      = 1 * time.Second
 		maxDelay          = 60 * time.Second
@@ -503,7 +497,7 @@ func attemptRegistryWithRetries(port int, maxRetries int, timeout time.Duration)
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		log.Printf("Attempting registry registration (attempt %d/%d)...", attempt, maxRetries)
 
-		err := registerWithRegistry(port, timeout)
+		err := registerWithRegistry(registryURL, port, timeout)
 		if err == nil {
 			// Success!
 			log.Println("Successfully registered with registry")
@@ -537,7 +531,7 @@ func startRegistryBackgroundService(config *Config) {
 
 	go func() {
 		timeout := time.Duration(config.RegistryTimeoutSec) * time.Second
-		err := attemptRegistryWithRetries(config.Port, config.RegistryMaxRetries, timeout)
+		err := attemptRegistryWithRetries(registryURL, config.Port, config.RegistryMaxRetries, timeout)
 		if err != nil {
 			log.Printf("Warning: Failed to register with registry after %d attempts. Service will continue without registry registration.",
 				config.RegistryMaxRetries)
