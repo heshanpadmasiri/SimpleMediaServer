@@ -10,9 +10,11 @@ import (
 )
 
 type Config struct {
-	MediaSource  string   `toml:"MediaSource"`  // Single media source (legacy)
-	MediaSources []string `toml:"MediaSources"` // Multiple media sources (new)
-	Port         int      `toml:"Port"`
+	MediaSource        string   `toml:"MediaSource"`  // Single media source (legacy)
+	MediaSources       []string `toml:"MediaSources"` // Multiple media sources (new)
+	Port               int      `toml:"Port"`
+	RegistryMaxRetries int      `toml:"RegistryMaxRetries"` // Maximum retry attempts for registry registration
+	RegistryTimeoutSec int      `toml:"RegistryTimeoutSec"` // Timeout in seconds for registry HTTP requests
 }
 
 func loadConfig() (*Config, error) {
@@ -78,6 +80,14 @@ func loadConfigFromFile(path string) (*Config, error) {
 	if config.Port == 0 {
 		config.Port = 8080
 		log.Println("Port not set in config, using default 8080")
+	}
+
+	// Set default values for registry configuration
+	if config.RegistryMaxRetries == 0 {
+		config.RegistryMaxRetries = 10
+	}
+	if config.RegistryTimeoutSec == 0 {
+		config.RegistryTimeoutSec = 10
 	}
 
 	return &config, nil

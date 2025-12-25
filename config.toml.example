@@ -20,3 +20,15 @@ MediaSources = [
 # MediaSource = "/Users/username/Pictures"
 # MediaSource = "/home/user/Videos"
 # MediaSource = "C:\\Users\\username\\Documents\\Photos" 
+
+# Registry Configuration (optional)
+# These settings control how the service registers with an external registry
+# The registry URL is set via the REGISTRY_URL environment variable
+
+# Maximum number of retry attempts for registry registration (default: 10)
+# With exponential backoff, this provides ~4 minutes of retry attempts
+# RegistryMaxRetries = 10
+
+# Timeout in seconds for each registry HTTP request (default: 10)
+# If the registry doesn't respond within this time, the attempt fails and will retry
+# RegistryTimeoutSec = 10

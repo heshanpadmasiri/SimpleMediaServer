@@ -437,7 +437,7 @@ type RegistryRequest struct {
 }
 
 // registerWithRegistry registers the service with the registry if REGISTRY_URL is set
-func registerWithRegistry(port int) error {
+func registerWithRegistry(port int, timeout time.Duration) error {
 	registryURL := os.Getenv("REGISTRY_URL")
 	if registryURL == "" {
 		log.Println("REGISTRY_URL not set, skipping registry registration")
@@ -463,9 +463,12 @@ func registerWithRegistry(port int) error {
 		return fmt.Errorf("failed to marshal registry payload: %w", err)
 	}
 
-	// Make POST request to registry
+	// Make POST request to registry with timeout
 	url := registryURL + "/register"
-	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonData))
+	client := &http.Client{
+		Timeout: timeout,
+	}
+	resp, err := client.Post(url, "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to register with registry at %s: %w", url, err)
 	}
@@ -486,6 +489,60 @@ func registerWithRegistry(port int) error {
 	}
 
 	return fmt.Errorf("registry registration failed with status %d: %s", resp.StatusCode, string(body))
+}
+
+// attemptRegistryWithRetries attempts to register with the registry with exponential backoff
+func attemptRegistryWithRetries(port int, maxRetries int, timeout time.Duration) error {
+	const (
+		initialDelay      = 1 * time.Second
+		maxDelay          = 60 * time.Second
+		backoffMultiplier = 2
+	)
+
+	var lastErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		log.Printf("Attempting registry registration (attempt %d/%d)...", attempt, maxRetries)
+
+		err := registerWithRegistry(port, timeout)
+		if err == nil {
+			// Success!
+			log.Println("Successfully registered with registry")
+			return nil
+		}
+
+		lastErr = err
+
+		if attempt < maxRetries {
+			// Calculate delay with exponential backoff
+			delay := min(initialDelay*time.Duration(1<<uint(attempt-1)), maxDelay)
+
+			log.Printf("Registry registration attempt %d/%d failed: %v. Retrying in %v...",
+				attempt, maxRetries, err, delay)
+			time.Sleep(delay)
+		} else {
+			log.Printf("Registry registration attempt %d/%d failed: %v", attempt, maxRetries, err)
+		}
+	}
+
+	return fmt.Errorf("failed to register after %d attempts: %w", maxRetries, lastErr)
+}
+
+// startRegistryBackgroundService starts registry registration in a background goroutine
+func startRegistryBackgroundService(config *Config) {
+	registryURL := os.Getenv("REGISTRY_URL")
+	if registryURL == "" {
+		log.Println("REGISTRY_URL not set, skipping registry registration")
+		return
+	}
+
+	go func() {
+		timeout := time.Duration(config.RegistryTimeoutSec) * time.Second
+		err := attemptRegistryWithRetries(config.Port, config.RegistryMaxRetries, timeout)
+		if err != nil {
+			log.Printf("Warning: Failed to register with registry after %d attempts. Service will continue without registry registration.",
+				config.RegistryMaxRetries)
+		}
+	}()
 }
 
 func main() {
@@ -537,10 +594,8 @@ func main() {
 	cx.rootDir = &rootDir
 	validateContext(&cx)
 
-	// Register with registry if REGISTRY_URL is set
-	if err := registerWithRegistry(config.Port); err != nil {
-		log.Fatalf("Warning: Failed to register with registry: %v", err)
-	}
+	// Register with registry in background if REGISTRY_URL is set
+	startRegistryBackgroundService(config)
 
 	r := gin.Default()
 	r.LoadHTMLGlob("templates/*")
